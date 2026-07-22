@@ -15,6 +15,23 @@ export interface AIAnalysisResult {
   error?: string
 }
 
+export interface AIGoalPlanStep {
+  stepIndex: number
+  instruction: string
+  targetLabel: string
+}
+
+export interface AIGoalPlan {
+  goal: string
+  steps: AIGoalPlanStep[]
+}
+
+export interface AIGoalPlanResult {
+  success: boolean
+  data?: AIGoalPlan
+  error?: string
+}
+
 export class AIService {
   // Verified active model cascade (3.1 & 3.5 Flash Lite series - high RPM, fast vision response)
   private static readonly FALLBACK_MODELS = [
@@ -56,6 +73,48 @@ export class AIService {
     } catch (err: any) {
       Logger.error('JSON parsing failed for AI response text:', cleanText)
       throw new Error(`Failed to validate response contract: ${err.message}`)
+    }
+  }
+
+  /**
+   * Parses raw text into a structured AIGoalPlan containing a multi-step sequence.
+   */
+  private static parseGoalPlanJson(text: string, userGoal: string): AIGoalPlan {
+    let cleanText = text.trim()
+    const start = cleanText.indexOf('{')
+    const end = cleanText.lastIndexOf('}')
+    
+    if (start !== -1 && end !== -1) {
+      cleanText = cleanText.substring(start, end + 1).trim()
+    }
+
+    try {
+      const parsed = JSON.parse(cleanText)
+      const rawSteps = Array.isArray(parsed)
+        ? parsed
+        : (Array.isArray(parsed.steps)
+            ? parsed.steps
+            : (Array.isArray(parsed.plan)
+                ? parsed.plan
+                : (Array.isArray(parsed.guidanceSteps) ? parsed.guidanceSteps : [])))
+      
+      const steps: AIGoalPlanStep[] = rawSteps.map((s: any, idx: number) => ({
+        stepIndex: typeof s.stepIndex === 'number' ? s.stepIndex : idx + 1,
+        instruction: typeof s.instruction === 'string' ? s.instruction : (s.nextStep || ''),
+        targetLabel: typeof s.targetLabel === 'string' ? s.targetLabel : ''
+      })).filter((s: AIGoalPlanStep) => s.instruction.length > 0)
+
+      if (steps.length === 0) {
+        throw new Error('Goal plan contains no valid steps.')
+      }
+
+      return {
+        goal: parsed.goal || userGoal,
+        steps
+      }
+    } catch (err: any) {
+      Logger.error('JSON parsing failed for Goal Plan text:', cleanText)
+      throw new Error(`Failed to validate goal plan: ${err.message}`)
     }
   }
 
@@ -223,6 +282,51 @@ export class AIService {
     } catch (error: any) {
       Logger.error('AIService: Step verification failed:', error)
       return { success: false, error: error?.message || 'Gemini verification query failed' }
+    }
+  }
+
+  /**
+   * Generates a complete multi-step guidance plan up front in a single API call.
+   */
+  static async analyzeGoalPlan(
+    goal: string,
+    screenshotBase64: string,
+    apiKey: string,
+    preferredModel = 'gemini-3.1-flash-lite'
+  ): Promise<AIGoalPlanResult> {
+    try {
+      Logger.info(`AIService: Requesting upfront multi-step goal plan for: "${goal}"`)
+
+      const base64Data = screenshotBase64.includes(',')
+        ? screenshotBase64.split(',')[1]
+        : screenshotBase64
+
+      const payload = {
+        contents: [
+          {
+            parts: [
+              {
+                text: `${PromptService.getSystemInstructions()}\n\n${PromptService.formatGoalPlanPrompt(goal)}`
+              },
+              {
+                inlineData: {
+                  mimeType: 'image/png',
+                  data: base64Data
+                }
+              }
+            ]
+          }
+        ]
+      }
+
+      const textResponse = await this.executeWithFallback(payload, apiKey, preferredModel)
+      const parsedPlan = this.parseGoalPlanJson(textResponse, goal)
+      
+      Logger.info(`AIService: Upfront plan generated successfully with ${parsedPlan.steps.length} steps.`)
+      return { success: true, data: parsedPlan }
+    } catch (error: any) {
+      Logger.error('AIService: Goal plan query failed:', error)
+      return { success: false, error: error?.message || 'Gemini goal plan generation failed' }
     }
   }
 }

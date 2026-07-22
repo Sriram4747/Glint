@@ -25,6 +25,30 @@ Expected JSON format:
 }`
   }
 
+  static formatGoalPlanPrompt(userGoal: string): string {
+    return `User Goal: "${userGoal}"
+
+Analyze the current screen screenshot and generate a complete multi-step guidance plan to achieve the user's goal.
+Break down the task into logical, sequential UI action steps (typically 2 to 5 steps).
+
+Expected JSON format:
+{
+  "goal": "${userGoal}",
+  "steps": [
+    {
+      "stepIndex": 1,
+      "instruction": "Clear, friendly instruction for step 1",
+      "targetLabel": "Exact accessibility text of target control (e.g. 'Bluetooth & devices')"
+    },
+    {
+      "stepIndex": 2,
+      "instruction": "Clear instruction for step 2",
+      "targetLabel": "Exact accessibility text of target control (e.g. 'Add device')"
+    }
+  ]
+}`
+  }
+
   static formatVerificationPrompt(
     userGoal: string,
     previousStep: string,

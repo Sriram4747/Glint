@@ -10,7 +10,7 @@ import {
 import { getAssistantWindow } from '../windows/assistant'
 import { AccessibilityService } from './accessibility'
 import { OverlayService } from './overlay'
-import { AIService, AIResponseContract } from './ai'
+import { AIService, AIResponseContract, AIGoalPlanStep } from './ai'
 import { CaptureService } from './capture'
 import { Logger } from './logger'
 import { Notification } from 'electron'
@@ -31,12 +31,17 @@ export class GuidanceSessionService {
   private static lastStepTargetLabel = ''
   private static lastScreenshot = ''
 
+  // Upfront Multi-Step Plan fields
+  private static activePlanSteps: AIGoalPlanStep[] = []
+  private static activePlanIndex = 0
+  private static localFailedCount = 0
+
   // Timer-based automatic verification (5 second loop between steps)
   private static autoTimer: NodeJS.Timeout | null = null
   private static isProcessingVerification = false
   private static readonly AUTO_CHECK_INTERVAL_MS = 5000 // 5 seconds between step verification checks
 
-  private static preferredModel = 'gemini-2.0-flash'
+  private static preferredModel = 'gemini-3.1-flash-lite'
 
   static getState(): GuidanceSessionState {
     return this.state
@@ -53,9 +58,9 @@ export class GuidanceSessionService {
   }
 
   /**
-   * Starts a visual guidance session.
+   * Starts a visual guidance session with Local-First Hybrid Architecture.
    */
-  static async start(goal: string, apiKey: string, preferredModel = 'gemini-2.0-flash'): Promise<void> {
+  static async start(goal: string, apiKey: string, preferredModel = 'gemini-3.1-flash-lite'): Promise<void> {
     Logger.info(`GuidanceSession: Starting visual guidance session for goal: "${goal}" using model: "${preferredModel}"`)
     
     this.state = GuidanceSessionState.Guiding
@@ -63,11 +68,14 @@ export class GuidanceSessionService {
     this.currentApiKey = apiKey
     this.preferredModel = preferredModel
     this.stepIndex = 1
+    this.activePlanSteps = []
+    this.activePlanIndex = 0
+    this.localFailedCount = 0
 
     // 1. Initialize floating assistant widget and overlay
     createFloatingAssistantWindow()
     showFloatingAssistantWindow()
-    updateFloatingAssistantProgress(`Analyzing step...`, goal)
+    updateFloatingAssistantProgress(`Generating guidance plan...`, goal)
 
     // Hide main assistant window to focus on visual guidance
     const assistantWin = getAssistantWindow()
@@ -75,16 +83,27 @@ export class GuidanceSessionService {
       assistantWin.hide()
     }
 
-    // 2. Initial step generation
+    // 2. Perform upfront multi-step plan generation (Single API Call)
     try {
       const captureResult = await this.captureCleanScreen()
       this.lastScreenshot = captureResult.image
 
-      const aiResult = await AIService.analyzeInitial(goal, captureResult.image, apiKey, this.preferredModel)
-      if (aiResult.success && aiResult.data) {
-        await this.applyNewStep(aiResult.data)
+      const planResult = await AIService.analyzeGoalPlan(goal, captureResult.image, apiKey, this.preferredModel)
+      
+      if (planResult.success && planResult.data && planResult.data.steps.length > 0) {
+        this.activePlanSteps = planResult.data.steps
+        this.activePlanIndex = 0
+        Logger.info(`GuidanceSession: Multi-step plan initialized with ${this.activePlanSteps.length} steps.`)
+        await this.applyPlanStep(this.activePlanSteps[0])
       } else {
-        throw new Error(aiResult.error || 'AI analysis failed')
+        // Fallback to single step initial analysis if plan generation fails
+        Logger.warn('GuidanceSession: Upfront plan generation failed, falling back to initial step analysis...')
+        const aiResult = await AIService.analyzeInitial(goal, captureResult.image, apiKey, this.preferredModel)
+        if (aiResult.success && aiResult.data) {
+          await this.applyNewStep(aiResult.data)
+        } else {
+          throw new Error(aiResult.error || 'AI analysis failed')
+        }
       }
     } catch (err: any) {
       Logger.error('GuidanceSession: Failed to initialize first step:', err)
@@ -191,6 +210,18 @@ export class GuidanceSessionService {
     Logger.info('GuidanceSession: Manual step advancement requested')
 
     this.cancelAutoCheck()
+
+    // If an upfront plan is active and there are remaining steps, advance to the next step immediately
+    if (this.activePlanSteps.length > 0 && this.activePlanIndex < this.activePlanSteps.length - 1) {
+      this.activePlanIndex += 1
+      this.stepIndex = this.activePlanIndex + 1
+      this.localFailedCount = 0
+      Logger.info(`GuidanceSession: Manual Next clicked. Advancing to Plan Step ${this.stepIndex} locally!`)
+      await this.applyPlanStep(this.activePlanSteps[this.activePlanIndex])
+      this.scheduleNextAutoCheck()
+      return
+    }
+
     await this.runVerification()
   }
 
@@ -233,18 +264,50 @@ export class GuidanceSessionService {
   }
 
   /**
-   * Core verification check — runs every 5s automatically or when "Next" is clicked.
+   * Local-First Hybrid Verification Check:
+   * 1. First tries zero-cost local UIA resolution to see if user completed current step or reached next step target.
+   * 2. Only invokes Vision Model API as a fallback if local UIA progress cannot be resolved after 2 attempts.
    */
   private static async runVerification(): Promise<void> {
     this.isProcessingVerification = true
-    updateFloatingAssistantProgress('Checking your screen...', this.currentGoal)
+    updateFloatingAssistantProgress(`Step ${this.stepIndex}: ${this.lastStepInstruction}`, this.currentGoal)
 
     try {
-      // Redraw highlight if lost
+      // 1. If we have an active upfront plan, check if the NEXT step target is visible locally in UIA
+      if (this.activePlanSteps.length > 0 && this.activePlanIndex < this.activePlanSteps.length - 1) {
+        const nextStepCandidate = this.activePlanSteps[this.activePlanIndex + 1]
+        
+        if (nextStepCandidate && nextStepCandidate.targetLabel) {
+          const localCheck = await AccessibilityService.search(nextStepCandidate.targetLabel)
+          if (localCheck.found && localCheck.visible) {
+            // Local UIA detected that the user navigated to the next step target!
+            Logger.info(`GuidanceSession: Local UIA detected next target "${nextStepCandidate.targetLabel}". Advancing step with ZERO API calls!`)
+            this.activePlanIndex += 1
+            this.stepIndex = this.activePlanIndex + 1
+            this.localFailedCount = 0
+            
+            await this.applyPlanStep(this.activePlanSteps[this.activePlanIndex])
+            return
+          }
+        }
+      }
+
+      // Check if current step target is still on screen or lost
       if (this.lastStepTargetLabel && !OverlayService.hasActiveHighlight()) {
         await this.resolveAndHighlightTarget(this.lastStepTargetLabel)
       }
 
+      // 2. Increment local failed count. If < 2 ticks, give user time without calling Vision API
+      this.localFailedCount += 1
+
+      if (this.localFailedCount < 2 && this.activePlanSteps.length > 0) {
+        Logger.info(`GuidanceSession: Waiting for user action locally (Tick ${this.localFailedCount})...`)
+        return
+      }
+
+      // 3. Fallback: Query Vision Model if local UIA has not resolved progress after 2 ticks (~10s)
+      Logger.info('GuidanceSession: Invoking Vision AI model fallback to verify outcome...')
+      this.localFailedCount = 0
       const captureResult = await this.captureCleanScreen()
 
       const result = await AIService.verifyStep(
@@ -260,7 +323,6 @@ export class GuidanceSessionService {
       if (result.success && result.data) {
         const contract = result.data
         if (contract.previousStepCompleted) {
-          // Action detected & verified! Move to next step
           this.stepIndex += 1
           this.lastScreenshot = captureResult.image
 
@@ -268,27 +330,41 @@ export class GuidanceSessionService {
             this.complete()
             return
           } else {
-            await this.applyNewStep(contract)
+            // Check if plan has next step or if AI provided new step
+            if (this.activePlanSteps.length > 0 && this.activePlanIndex < this.activePlanSteps.length - 1) {
+              this.activePlanIndex += 1
+              await this.applyPlanStep(this.activePlanSteps[this.activePlanIndex])
+            } else {
+              await this.applyNewStep(contract)
+            }
           }
         } else {
-          // Step not completed yet — keep current target highlighted
-          Logger.info(`GuidanceSession: Step ${this.stepIndex} not completed yet. Retrying in 5s...`)
-          updateFloatingAssistantProgress(`Step ${this.stepIndex}`, this.currentGoal)
+          Logger.info(`GuidanceSession: Vision verification negative for Step ${this.stepIndex}. Keeping highlight.`)
+          updateFloatingAssistantProgress(`Step ${this.stepIndex}: ${this.lastStepInstruction}`, this.currentGoal)
           this.lastScreenshot = captureResult.image
         }
-      } else {
-        updateFloatingAssistantProgress(`Step ${this.stepIndex}`, this.currentGoal)
       }
     } catch (err) {
       Logger.error('GuidanceSession: Verification run failed:', err)
-      updateFloatingAssistantProgress(`Step ${this.stepIndex}`, this.currentGoal)
     } finally {
       this.isProcessingVerification = false
-      // Schedule the next 5-second check
       if (this.state === GuidanceSessionState.Guiding) {
         this.scheduleNextAutoCheck()
       }
     }
+  }
+
+  /**
+   * Applies a step from the upfront multi-step plan.
+   */
+  private static async applyPlanStep(step: AIGoalPlanStep): Promise<void> {
+    this.lastStepInstruction = step.instruction
+    this.lastStepTargetLabel = step.targetLabel
+    
+    Logger.info(`GuidanceSession: Applying Plan Step ${step.stepIndex}: "${step.instruction}" (Target: "${step.targetLabel}")`)
+    updateFloatingAssistantProgress(`Step ${step.stepIndex}: ${step.instruction}`, this.currentGoal)
+
+    await this.resolveAndHighlightTarget(step.targetLabel)
   }
 
   // ── Screen Capture & Highlight Helpers ─────────────────────────────
