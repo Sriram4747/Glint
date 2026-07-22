@@ -1,0 +1,51 @@
+.glint-titlebar {
+  display: flex;
+  height: 28px;
+  background-color: transparent;
+  user-select: none;
+  width: 100%;
+}
+
+.glint-titlebar-drag-region {
+  flex: 1;
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+}
+
+.glint-titlebar-title {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-family: var(--font-family);
+  font-weight: 500;
+}
+
+.glint-titlebar-controls {
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.glint-titlebar-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+  outline: none;
+}
+
+.glint-titlebar-btn:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.glint-titlebar-btn.close-btn:hover {
+  background-color: #d32f2f;
+  color: #ffffff;
+}

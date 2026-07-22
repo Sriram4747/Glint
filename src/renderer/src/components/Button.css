@@ -1,0 +1,91 @@
+.glint-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-family);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  outline: none;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.glint-button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.glint-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Sizes */
+.glint-button--sm {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.glint-button--md {
+  height: 36px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+
+.glint-button--lg {
+  height: 42px;
+  padding: 0 24px;
+  font-size: 14px;
+}
+
+/* Variants */
+.glint-button--primary {
+  background-color: var(--color-accent);
+  color: #ffffff;
+  box-shadow: var(--shadow-sm);
+}
+
+.glint-button--primary:hover:not(:disabled) {
+  background-color: var(--color-accent-hover);
+  box-shadow: 0 0 8px var(--color-accent-subtle);
+}
+
+.glint-button--secondary {
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+}
+
+.glint-button--secondary:hover:not(:disabled) {
+  background-color: var(--color-surface-hover);
+}
+
+.glint-button--ghost {
+  background-color: transparent;
+  color: var(--color-text-secondary);
+}
+
+.glint-button--ghost:hover:not(:disabled) {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.glint-button--icon {
+  border-radius: 50%;
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  padding: 0;
+  width: 36px;
+  height: 36px;
+}
+
+.glint-button--icon.glint-button--sm { width: 28px; }
+.glint-button--icon.glint-button--lg { width: 42px; }
+
+.glint-button--icon:hover:not(:disabled) {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}

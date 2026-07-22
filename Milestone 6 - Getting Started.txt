@@ -1,0 +1,1902 @@
+# Milestone 6A - Interactive Visual Guidance
+
+> **This milestone represents the architectural transition of Glint from an AI assistant into an Interactive Desktop Navigation Assistant.**
+>
+> Prior milestones enabled conversations, goal persistence, screenshots and AI reasoning.
+>
+> From this milestone onward, Glint maintains an active guidance session, visually assists users, verifies progress after every step, and remains with the user until the Goal is completed or intentionally paused.
+>
+> This document serves as the architectural foundation for all future guidance capabilities.
+
+---
+
+# Objective
+
+Transform Glint from a conversational assistant into an interactive desktop navigation assistant that visually guides users through their goals one step at a time.
+
+Instead of simply answering questions, Glint now actively accompanies the user until the goal has been completed.
+
+This milestone introduces:
+
+- Guidance Levels
+- Interactive Guidance Sessions
+- Floating Assistant
+- Visual Overlay
+- Accessibility-based UI detection
+- Progress Detection
+- Progress Verification
+- Pause / Resume lifecycle
+- Structured AI responses
+- Future-ready architecture for Vision Guidance
+
+---
+
+# Design Principles
+
+The following principles define how Interactive Visual Guidance must be implemented.
+
+Every future milestone must preserve these principles.
+
+---
+
+## 1. Goal-Centric
+
+Glint is goal-driven.
+
+Users do not interact with Glint for isolated instructions.
+
+Instead, Glint assists users in achieving a Goal.
+
+Examples:
+
+- Enable Bluetooth
+- Install Python
+- Create a Pivot Table
+- Export PDF
+- Change Wallpaper
+
+A Guidance Session exists only to help the user complete the active Goal.
+
+---
+
+## 2. Interactive Guidance
+
+Level 2 Guidance is an active session.
+
+Once guidance begins, Glint remains with the user until one of the following occurs:
+
+- Goal Completed
+- Goal Paused
+- Goal Cancelled
+
+Glint must never automatically abandon an active guidance session.
+
+---
+
+## 3. Control-Centric
+
+Glint must never think in terms of applications.
+
+Instead, Glint operates on UI Controls.
+
+Examples:
+
+- Button
+- Toggle
+- Menu
+- Tree Item
+- Navigation Item
+- Text Box
+- Checkbox
+- Radio Button
+- List
+- Combo Box
+
+Whether those controls belong to:
+
+- Windows Settings
+- Microsoft Word
+- Microsoft Excel
+- Chrome
+- Edge
+- Photoshop
+- Explorer
+
+is irrelevant.
+
+The control itself is what matters.
+
+---
+
+## 4. Accessibility First
+
+Glint always attempts Windows UI Automation before using Vision.
+
+Accessibility provides:
+
+- Control Name
+- Bounding Rectangle
+- Control Type
+- Focus State
+- Enabled State
+
+This information is significantly more reliable than AI-generated screen coordinates.
+
+Vision exists only as a future fallback.
+
+---
+
+## 5. Verify Outcomes
+
+Glint never verifies user input.
+
+Glint verifies outcomes.
+
+Incorrect:
+
+> Did the user click?
+
+Correct:
+
+> Is the expected result now visible?
+
+Example
+
+Instruction:
+
+> Click Bluetooth & devices.
+
+Verification:
+
+> Is the Bluetooth & devices page now displayed?
+
+---
+
+## 6. Human Control
+
+Glint guides.
+
+Users perform actions.
+
+During Level 2:
+
+- Glint never automatically clicks buttons.
+- Glint never automatically changes settings.
+- Glint never performs actions on behalf of the user.
+
+Future milestones may introduce optional assisted actions requiring explicit user confirmation.
+
+---
+
+## 7. Progressive Enhancement
+
+Accessibility is always attempted first.
+
+If Accessibility cannot confidently identify a control,
+
+Vision becomes the fallback.
+
+The architecture must allow this transition without redesign.
+
+---
+
+# Guidance Levels
+
+Glint introduces Guidance Levels to accommodate different user preferences.
+
+---
+
+## Level 1 – Minimal Guidance
+
+Level 1 preserves Glint's existing behaviour.
+
+Workflow
+
+```
+Open Assistant
+        ↓
+Receive Instruction
+        ↓
+Hide Assistant
+        ↓
+User Performs Action
+        ↓
+2 Minute Reminder
+        ↓
+Resume if Needed
+```
+
+Characteristics
+
+- Text Instructions
+- No Overlay
+- No Floating Assistant
+- No Progress Detection
+- Existing Reminder Behaviour
+
+This level is intended for users who prefer lightweight assistance.
+
+---
+
+## Level 2 – Interactive Visual Guidance
+
+Level 2 transforms Glint into an interactive guidance companion.
+
+Workflow
+
+```
+Goal Started
+        ↓
+Guidance Session Begins
+        ↓
+Floating Assistant Appears
+        ↓
+Overlay Highlights Target
+        ↓
+User Performs Action
+        ↓
+Glint Verifies Progress
+        ↓
+Generate Next Instruction
+        ↓
+Repeat
+        ↓
+Goal Completed
+```
+
+Characteristics
+
+- Overlay Enabled
+- Floating Assistant Enabled
+- Progress Detection Enabled
+- Progress Verification Enabled
+- Interactive Guidance Session
+
+---
+
+# AI Response Contract
+
+Beginning with Milestone 6A,
+
+the LLM must no longer return plain conversational instructions.
+
+Instead,
+
+every response must follow a structured contract.
+
+Example
+
+```json
+{
+    "nextStep": "Click Bluetooth & devices.",
+    "targetLabel": "Bluetooth & devices",
+    "goalCompleted": false
+}
+```
+
+Future responses may include additional metadata.
+
+Examples:
+
+```json
+{
+    "nextStep": "...",
+    "targetLabel": "...",
+    "controlType": "Button",
+    "confidence": 0.97,
+    "goalCompleted": false
+}
+```
+
+---
+
+## Responsibilities
+
+### AI
+
+Responsible for
+
+- Understanding screenshots
+- Understanding user intent
+- Understanding progress
+- Determining next instruction
+
+AI is NOT responsible for
+
+- Screen coordinates
+- Bounding rectangles
+- Overlay positions
+- Pixel locations
+
+---
+
+### Glint
+
+Responsible for
+
+- Finding controls
+- Locating rectangles
+- Drawing overlays
+- Managing sessions
+- Managing windows
+- Tracking guidance lifecycle
+
+---
+
+## Important Rule
+
+The LLM must never return
+
+- X coordinate
+- Y coordinate
+- Width
+- Height
+- Overlay positions
+
+Those responsibilities belong exclusively to Glint.
+
+---
+
+# Guidance Session
+
+Interactive Visual Guidance introduces a new runtime concept.
+
+```
+Guidance Session
+```
+
+Only one Guidance Session may exist at a time.
+
+The Guidance Session represents the user's active journey toward completing a Goal.
+
+---
+
+## GuidanceSessionService
+
+Create
+
+```
+GuidanceSessionService
+```
+
+Responsibilities
+
+- Start Guidance Session
+- Pause Guidance
+- Resume Guidance
+- Complete Guidance
+- Cancel Guidance
+- Manage Overlay lifecycle
+- Manage Floating Assistant
+- Coordinate Verification Loop
+- Coordinate Progress Detection
+- Coordinate Goal lifecycle
+
+---
+
+## Guidance Session States
+
+```ts
+enum GuidanceSessionState
+{
+    Inactive,
+    Guiding,
+    Paused,
+    Completed
+}
+```
+
+---
+
+## State Definitions
+
+### Inactive
+
+No active guidance.
+
+Overlay hidden.
+
+Floating Assistant hidden.
+
+---
+
+### Guiding
+
+Interactive Guidance is active.
+
+Overlay visible.
+
+Floating Assistant visible.
+
+Progress Detection active.
+
+Verification active.
+
+---
+
+### Paused
+
+Guidance temporarily suspended.
+
+Overlay hidden.
+
+Floating Assistant hidden.
+
+Assistant hidden.
+
+Goal preserved.
+
+Reminder timer active.
+
+---
+
+### Completed
+
+Goal completed successfully.
+
+All guidance components destroyed.
+
+Session terminated.
+
+Goal archived.
+
+---
+
+# Window Architecture
+
+Glint now consists of three independent windows.
+
+Each window has an independent responsibility.
+
+---
+
+## 1. Assistant Window
+
+Purpose
+
+- Conversation
+- Goal
+- Settings
+- Resume Banner
+- AI Responses
+
+This is the primary interaction window.
+
+---
+
+## 2. Floating Assistant
+
+Purpose
+
+- Quick Restore
+- Progress Indicator
+- Active Guidance Companion
+
+The Floating Assistant is NOT the Assistant Window.
+
+It is a lightweight widget.
+
+Example
+
+```
+╭────────────╮
+│ 🤖 Glint   │
+│ Step 3 / 8 │
+╰────────────╯
+```
+
+The Floating Assistant exists only during an active Level 2 Guidance Session.
+
+It must never appear during
+
+- Level 1
+- Paused Guidance
+- Completed Goals
+
+Responsibilities
+
+- Always On Top
+- Draggable
+- Remember Position
+- Restore Assistant Window
+- Display Current Step
+- Display Active Goal
+- Hide when Paused
+- Hide when Completed
+
+---
+
+## 3. Overlay Window
+
+Purpose
+
+- Highlight Controls
+- Draw Direction Arrow
+- Provide Visual Guidance
+
+The Overlay contains no conversational interface.
+
+It is purely visual.
+
+---
+
+## Independent Lifecycles
+
+Each window is managed independently.
+
+Assistant Window
+
+- May appear or disappear.
+
+Floating Assistant
+
+- Exists only during active guidance.
+
+Overlay
+
+- Exists only while highlighting controls.
+
+One window must never depend on another for its existence.
+
+---
+
+# Assistant Window Behaviour
+
+The Assistant Window is not intended to remain open throughout a Guidance Session.
+
+Typical workflow
+
+```
+User asks question
+        ↓
+Assistant Window opens
+        ↓
+Instruction generated
+        ↓
+Assistant Window hides
+        ↓
+Floating Assistant remains
+        ↓
+Overlay guides user
+```
+
+When the user clicks the Floating Assistant,
+
+the Assistant Window is restored.
+
+The Assistant Window and Floating Assistant should never compete visually.
+
+Only one conversational interface should be visible at any given time.
+
+---
+
+# Floating Assistant Behaviour
+
+The Floating Assistant acts as the user's persistent companion during Interactive Guidance.
+
+It is intentionally lightweight.
+
+It should not obstruct the user's workspace.
+
+Requirements
+
+- Always On Top
+- Draggable
+- Snap to screen edges (optional)
+- Remember position
+- Restore Assistant Window on click
+- Show current Goal
+- Show current Step
+- Hide automatically when guidance pauses
+- Hide automatically when guidance completes
+
+The Floating Assistant must not display long conversations.
+
+Its responsibility is navigation, not interaction.
+
+---
+
+# Overlay Service
+
+Create
+
+```
+OverlayService
+```
+
+Responsibilities
+
+- Draw Highlight Rectangle
+- Draw Direction Arrow
+- Fade Animations
+- Always On Top
+- Transparent Window
+- Click-through Behaviour
+- Multi-monitor Support
+- Hide before Screenshot
+- Restore after Screenshot
+
+The Overlay must never intercept keyboard or mouse input.
+
+It is a visual layer only.
+
+
+---
+
+# Accessibility Service
+
+Create
+
+```
+AccessibilityService
+```
+
+The Accessibility Service is responsible for locating UI controls using the Windows UI Automation (UIA) framework.
+
+It acts as the primary mechanism for locating UI elements before any future Vision-based solution is considered.
+
+---
+
+## Responsibilities
+
+The Accessibility Service must be capable of:
+
+- Reading the Windows UI Automation Tree
+- Finding controls by:
+  - Name
+  - AutomationId
+  - Control Type
+  - Role
+- Returning the Bounding Rectangle
+- Returning Control Metadata
+- Returning a Confidence Score
+- Monitoring Accessibility Events
+
+---
+
+## Search Result
+
+Example:
+
+```ts
+interface AccessibilitySearchResult
+{
+    found: boolean;
+    confidence: number;
+
+    controlName: string;
+    controlType: string;
+
+    rectangle: Rectangle;
+
+    automationId?: string;
+
+    enabled: boolean;
+    visible: boolean;
+}
+```
+
+---
+
+## Design Rule
+
+AccessibilityService must never contain application-specific logic.
+
+Incorrect
+
+```
+If Photoshop
+    Search Toolbar
+```
+
+Correct
+
+```
+Search for a control
+whose Name is
+
+"Brush Tool"
+```
+
+The Accessibility Service must remain completely generic.
+
+---
+
+## Why Accessibility?
+
+Windows already knows:
+
+- Where controls are located
+- Their dimensions
+- Their accessibility names
+- Their state
+- Whether they are enabled
+
+Therefore,
+
+Glint should always trust Windows before asking AI to estimate positions.
+
+---
+
+# Target Resolution Pipeline
+
+The AI determines
+
+**What**
+
+Glint determines
+
+**Where**
+
+Example AI Response
+
+```json
+{
+    "nextStep": "Click Bluetooth & devices.",
+    "targetLabel": "Bluetooth & devices"
+}
+```
+
+Target Resolution Pipeline
+
+```
+Goal
+      │
+      ▼
+AI Response
+      │
+      ▼
+Accessibility Service
+      │
+      ▼
+Confidence Evaluation
+      │
+      ├───────────────┐
+      │               │
+High Confidence   Low Confidence
+      │               │
+      ▼               ▼
+ Overlay        Future Vision Locator
+```
+
+Accessibility is always attempted first.
+
+Vision is intentionally deferred to Milestone 6B.
+
+---
+
+## Confidence Evaluation
+
+The Accessibility Service should expose a confidence score.
+
+Examples
+
+### High
+
+```
+Found exactly one control
+
+Name matches
+
+Visible
+
+Enabled
+
+Confidence = 100%
+```
+
+---
+
+### Medium
+
+```
+Found multiple matching controls
+
+Confidence = 65%
+```
+
+---
+
+### Low
+
+```
+No matching controls
+
+Confidence = 0%
+```
+
+Future milestones may combine Accessibility confidence with Vision confidence.
+
+---
+
+# Progress Detection
+
+Glint does not monitor user clicks.
+
+Instead,
+
+Glint monitors meaningful UI changes.
+
+The objective is to determine when it should verify the previous instruction.
+
+---
+
+## Progress Detection Priority
+
+### Level 1
+
+No progress detection.
+
+The user manually resumes the Goal.
+
+---
+
+### Level 2
+
+Progress Detection is enabled.
+
+Priority Order
+
+```
+Accessibility Events
+
+↓
+
+Foreground Window Changes
+
+↓
+
+Periodic Screen Check
+```
+
+---
+
+# Accessibility Events
+
+Primary mechanism.
+
+Listen for events such as
+
+- Focus Changed
+- Window Opened
+- Window Closed
+- Content Changed
+- Selection Changed
+- Menu Expanded
+- Menu Collapsed
+
+When one of these events occurs,
+
+Glint should consider verifying the previous instruction.
+
+---
+
+# Foreground Window Changes
+
+Monitor
+
+- Active Window
+- Window Title
+- Window Handle
+
+Example
+
+```
+Settings
+
+↓
+
+Bluetooth & devices
+```
+
+This is a strong indicator that the previous instruction may have succeeded.
+
+---
+
+# Periodic Check
+
+Fallback only.
+
+While Guidance is active,
+
+perform a lightweight periodic check every
+
+```
+1–2 seconds
+```
+
+The objective is NOT to compare pixels.
+
+Instead,
+
+determine whether the current screen may have changed enough to justify verification.
+
+---
+
+# Important Rule
+
+Glint never attempts to determine
+
+```
+Did the user click?
+```
+
+Instead,
+
+Glint asks
+
+```
+Has the UI likely changed?
+```
+
+Only then does verification begin.
+
+---
+
+# Progress Verification
+
+Verification is the heart of Interactive Guidance.
+
+Every instruction must be verified before the next instruction is generated.
+
+---
+
+## Verification Principle
+
+Verification answers exactly one question.
+
+```
+Was the previous instruction completed?
+```
+
+Verification never asks
+
+```
+Did the user click?
+
+Did the mouse move?
+
+Did the keyboard shortcut execute?
+```
+
+Those details are irrelevant.
+
+Only the resulting UI state matters.
+
+---
+
+## Verification Workflow
+
+```
+Previous Instruction
+
+↓
+
+User Performs Action
+
+↓
+
+Progress Detection
+
+↓
+
+Capture Screen
+
+↓
+
+Verification
+
+↓
+
+Instruction Completed?
+
+↓
+
+YES
+
+↓
+
+Generate Next Instruction
+
+──────────────
+
+NO
+
+↓
+
+Repeat / Clarify Previous Instruction
+```
+
+---
+
+## Verification Inputs
+
+Verification receives
+
+- Goal
+- Previous Screenshot
+- Current Screenshot
+- Previous Instruction
+
+Nothing else is required.
+
+---
+
+## Verification Prompt
+
+Prompt
+
+```
+Goal
+
+Previous Screenshot
+
+Current Screenshot
+
+Previous Instruction
+
+Determine:
+
+1.
+
+Was the previous instruction completed?
+
+2.
+
+If completed,
+
+generate the next instruction.
+
+3.
+
+If not completed,
+
+repeat or clarify the previous instruction.
+
+4.
+
+If the Goal has been achieved,
+
+set goalCompleted = true.
+
+Return structured JSON only.
+```
+
+---
+
+## Verification Response
+
+Example
+
+```json
+{
+    "previousStepCompleted": true,
+
+    "reason": "The Bluetooth & devices page is now visible.",
+
+    "nextStep": "Turn Bluetooth On.",
+
+    "targetLabel": "Bluetooth",
+
+    "goalCompleted": false
+}
+```
+
+Example (Failed)
+
+```json
+{
+    "previousStepCompleted": false,
+
+    "reason": "The Settings Home page is still visible.",
+
+    "nextStep": "Click Bluetooth & devices.",
+
+    "targetLabel": "Bluetooth & devices",
+
+    "goalCompleted": false
+}
+```
+
+---
+
+# Guidance Session Principle
+
+Once a Guidance Session starts,
+
+it remains active until one of the following occurs.
+
+- Goal Completed
+- Goal Paused
+- Goal Cancelled
+
+Glint must never automatically return to the tray while actively guiding.
+
+Only the Assistant Window may temporarily hide.
+
+The Guidance Session itself remains active.
+
+---
+
+# Goal Completion
+
+When
+
+```
+goalCompleted = true
+```
+
+the Guidance Session ends.
+
+Workflow
+
+```
+Goal Completed
+
+↓
+
+Hide Overlay
+
+↓
+
+Hide Floating Assistant
+
+↓
+
+Terminate Guidance Session
+
+↓
+
+Archive Goal
+
+↓
+
+Hide Assistant
+
+↓
+
+Return to Tray
+
+↓
+
+Display Success Message
+```
+
+Example
+
+```
+🎉 Goal Completed
+
+Bluetooth has been enabled successfully.
+```
+
+---
+
+# Pause Guidance
+
+The Escape key pauses guidance.
+
+It must never immediately terminate the Goal.
+
+Workflow
+
+```
+Esc
+
+↓
+
+Pause Guidance
+
+↓
+
+Hide Overlay
+
+↓
+
+Hide Floating Assistant
+
+↓
+
+Hide Assistant Window
+
+↓
+
+Return to Tray
+
+↓
+
+Start Reminder Timer
+```
+
+The Goal remains fully recoverable.
+
+Conversation is preserved.
+
+Current Step is preserved.
+
+Current Goal is preserved.
+
+---
+
+# Resume Guidance
+
+The user may resume using
+
+- Tray Icon
+- Reminder Notification
+
+Workflow
+
+```
+Resume
+
+↓
+
+Restore Goal
+
+↓
+
+Restore Guidance Session
+
+↓
+
+Restore Floating Assistant
+
+↓
+
+Restore Assistant Window
+
+↓
+
+Continue Guidance
+```
+
+No previous progress should be lost.
+
+---
+
+# Cancel Goal
+
+If the user explicitly cancels the Goal,
+
+Workflow
+
+```
+Cancel Goal
+
+↓
+
+Destroy Guidance Session
+
+↓
+
+Hide Overlay
+
+↓
+
+Hide Floating Assistant
+
+↓
+
+Archive Conversation
+
+↓
+
+Return to Tray
+```
+
+Unlike Pause,
+
+Cancel permanently ends the current Guidance Session.
+
+---
+
+# Reminder Notifications
+
+Reminder behaviour differs between Guidance Levels.
+
+---
+
+## Level 1
+
+Current behaviour remains unchanged.
+
+```
+Still working on
+
+Enable Bluetooth?
+
+[ Resume ]
+
+[ Mark Complete ]
+
+[ Dismiss ]
+```
+
+---
+
+## Level 2
+
+While Guiding
+
+No reminders.
+
+The user is already actively engaged.
+
+---
+
+## Level 2 (Paused)
+
+Reminder timer begins.
+
+After
+
+```
+2 Minutes
+```
+
+Display
+
+```
+Need help continuing?
+
+Resume Guidance
+
+Mark Complete
+
+Dismiss
+```
+
+Only paused sessions generate reminders.
+
+
+---
+
+# UI State Diagrams
+
+The following state diagrams describe the complete lifecycle of Interactive Visual Guidance.
+
+---
+
+## Level 1 Guidance
+
+```
+                 +----------------+
+                 |  Assistant Open |
+                 +--------+--------+
+                          |
+                          v
+              +------------------------+
+              | AI Generates Instruction|
+              +-----------+------------+
+                          |
+                          v
+                +--------------------+
+                | Assistant Hides    |
+                +---------+----------+
+                          |
+                          v
+                  User Performs Work
+                          |
+                          |
+             +------------+-------------+
+             |                          |
+             v                          v
+      Goal Completed             Reminder Triggered
+             |                          |
+             v                          v
+      Conversation Ends        Resume / Dismiss
+```
+
+---
+
+## Level 2 Guidance
+
+```
+Goal Created
+      |
+      v
+Guidance Session Started
+      |
+      v
+Floating Assistant Created
+      |
+      v
+AI Generates Step
+      |
+      v
+Accessibility Locates Target
+      |
+      v
+Overlay Displayed
+      |
+      v
+User Performs Action
+      |
+      v
+Progress Detection
+      |
+      v
+Verification
+      |
+      |
+ +----+-------------------------------+
+ |                                    |
+ | Previous Step Completed?           |
+ |                                    |
+ +-------------+----------------------+
+               |
+      +--------+--------+
+      |                 |
+      v                 v
+Generate Next      Repeat Previous
+Instruction        Instruction
+      |
+      v
+Goal Completed?
+      |
+ +----+----+
+ |         |
+No        Yes
+ |         |
+ |         v
+ |   Destroy Guidance
+ |   Hide Overlay
+ |   Hide Floating Assistant
+ |   Archive Goal
+ |
+ +-------> Continue Session
+```
+
+---
+
+# Window Interaction Model
+
+The three windows cooperate but remain independent.
+
+```
++----------------------+
+| Assistant Window     |
+|----------------------|
+| Conversation         |
+| Goal                 |
+| Settings             |
++----------+-----------+
+           |
+           | Opens / Restores
+           |
++----------v-----------+
+| Floating Assistant   |
+|----------------------|
+| Current Goal         |
+| Step Progress        |
++----------+-----------+
+           |
+           | Requests Highlight
+           |
++----------v-----------+
+| Overlay Window       |
+|----------------------|
+| Highlight            |
+| Arrow                |
+| Animation            |
++----------------------+
+```
+
+None of these windows should directly depend on each other.
+
+Communication must occur through services.
+
+---
+
+# Service Architecture
+
+Milestone 6A introduces several independent services.
+
+```
+AIService
+
+AccessibilityService
+
+OverlayService
+
+GuidanceSessionService
+
+ProgressDetectionService
+
+VerificationService
+
+ReminderService
+```
+
+Each service should have a single responsibility.
+
+Services communicate through events rather than direct coupling whenever practical.
+
+---
+
+# Event Flow
+
+Example
+
+```
+User Starts Goal
+
+↓
+
+GuidanceSessionStarted
+
+↓
+
+InstructionGenerated
+
+↓
+
+TargetResolved
+
+↓
+
+OverlayDisplayed
+
+↓
+
+User Performs Action
+
+↓
+
+ProgressDetected
+
+↓
+
+VerificationRequested
+
+↓
+
+VerificationCompleted
+
+↓
+
+InstructionGenerated
+
+↓
+
+Repeat
+```
+
+This event-driven architecture improves maintainability and makes future extensions easier.
+
+---
+
+# Future Vision Fallback
+
+Some applications expose incomplete or unreliable Accessibility information.
+
+Examples include:
+
+- Photoshop Canvas
+- Blender Viewport
+- Games
+- Remote Desktop Sessions
+- Custom OpenGL / DirectX Surfaces
+
+These scenarios are intentionally deferred to Milestone 6B.
+
+---
+
+## Future Pipeline
+
+```
+AI
+
+↓
+
+Accessibility
+
+↓
+
+Confidence
+
+↓
+
+High
+
+↓
+
+Overlay
+
+──────────────
+
+Low
+
+↓
+
+Vision Locator
+
+↓
+
+Confidence
+
+↓
+
+Overlay
+```
+
+The Guidance Session architecture must remain unchanged regardless of which locator is used.
+
+Only the target resolution strategy changes.
+
+---
+
+# Multi-Monitor Support
+
+The Overlay Service should support multiple monitors.
+
+Requirements:
+
+- Correct monitor detection
+- Correct coordinate space conversion
+- Overlay rendered on the monitor containing the target control
+- Floating Assistant may be positioned independently
+
+The user should experience seamless guidance across displays.
+
+---
+
+# DPI Awareness
+
+The Overlay must be DPI-aware.
+
+Requirements:
+
+- High DPI displays
+- Mixed DPI multi-monitor setups
+- Windows display scaling
+- Dynamic DPI changes
+
+All overlay positioning should use logical coordinates provided by Windows UI Automation where possible.
+
+---
+
+# Overlay Behaviour
+
+The overlay should remain visually helpful without becoming distracting.
+
+Guidelines:
+
+- Smooth fade-in
+- Smooth fade-out
+- Rounded highlight corners (optional)
+- Gentle pulsing animation (optional)
+- Direction arrow pointing toward target
+- Avoid covering the target itself
+- Never block user interaction
+- Always click-through
+
+Animations should be subtle and should not reduce usability.
+
+---
+
+# Screenshot Behaviour
+
+Whenever Glint captures a screenshot for AI processing:
+
+Workflow
+
+```
+Hide Overlay
+
+↓
+
+Capture Screenshot
+
+↓
+
+Restore Overlay
+```
+
+The AI should never receive screenshots containing Glint's own overlay or floating assistant unless explicitly intended for debugging.
+
+This avoids self-referential analysis and keeps screenshots focused on the user's application.
+
+---
+
+# Error Handling
+
+Interactive Guidance must degrade gracefully.
+
+---
+
+## Control Not Found
+
+If Accessibility cannot locate the requested control:
+
+- Retry the search
+- Consider alternative matching strategies (e.g., case-insensitive or partial label matching if appropriate)
+- If confidence remains low:
+  - Inform the user that the control could not be located
+  - Continue guidance without an overlay if possible
+  - Record the failure for diagnostics
+  - Preserve the Guidance Session
+
+The Guidance Session should not terminate because one control could not be located.
+
+---
+
+## Accessibility Failure
+
+If Windows UI Automation is unavailable or fails unexpectedly:
+
+- Disable the overlay
+- Continue conversational guidance
+- Preserve the Guidance Session
+- Inform the user that visual guidance is temporarily unavailable
+
+The user should still be able to complete the Goal.
+
+---
+
+## AI Failure
+
+If the AI fails to return a valid structured response:
+
+- Retry the request
+- Validate the response format
+- Reject malformed responses
+- Avoid undefined behaviour
+
+The application must never assume a partially valid response is correct.
+
+---
+
+## Overlay Failure
+
+If the overlay cannot be displayed:
+
+- Continue guidance
+- Keep the Floating Assistant active
+- Notify the user if appropriate
+- Log the error
+
+The inability to draw an overlay should never end the session.
+
+---
+
+# JSON Validation
+
+Every AI response should be validated before use.
+
+Validation includes:
+
+- Required fields present
+- Correct data types
+- Valid boolean values
+- Non-empty nextStep unless goalCompleted is true
+- targetLabel present when an overlay is expected
+
+Invalid responses should trigger a retry or fallback path.
+
+---
+
+# Logging and Diagnostics
+
+For debugging and future improvements, Glint should log key events (respecting user privacy and configurable logging levels).
+
+Examples:
+
+- Guidance Session Started
+- Instruction Generated
+- Accessibility Search
+- Overlay Displayed
+- Verification Requested
+- Verification Result
+- Goal Completed
+- Guidance Paused
+- Guidance Resumed
+- Guidance Cancelled
+- Error Conditions
+
+Logs should avoid storing sensitive user content unless explicitly enabled for debugging.
+
+---
+
+# Extension Points
+
+Milestone 6A intentionally prepares the architecture for future enhancements.
+
+Potential future capabilities include:
+
+- Vision-based target resolution
+- OCR-assisted target detection
+- Voice-guided navigation
+- Multi-step plan optimisation
+- Automatic scroll detection
+- Animated path guidance
+- Optional AI-assisted actions with explicit user consent
+- Platform support beyond Windows
+- Plugin-based locator strategies
+
+These features should integrate without requiring fundamental architectural changes.
+
+---
+
+# Out of Scope
+
+The following are intentionally excluded from Milestone 6A:
+
+- Vision-based control detection
+- Automatic clicking or keyboard input
+- OCR-based target detection
+- Autonomous task execution
+- Cross-platform accessibility implementations
+- Workflow recording or replay
+- Learning personalised UI layouts
+
+These belong to future milestones.
+
+---
+
+# Acceptance Criteria
+
+Milestone 6A is considered complete when all of the following are true:
+
+- Guidance Levels are implemented.
+- Level 1 preserves existing behaviour.
+- Level 2 maintains an active Guidance Session.
+- Guidance Session persists until the Goal is completed, paused, or cancelled.
+- AI returns structured JSON responses.
+- AI never returns screen coordinates.
+- Glint resolves UI controls using Accessibility.
+- Overlay highlights the correct target when available.
+- Floating Assistant exists only during active Level 2 guidance.
+- Assistant Window, Floating Assistant, and Overlay have independent lifecycles.
+- Progress Detection reacts to meaningful UI changes rather than user input.
+- Verification always evaluates whether the previous instruction was successfully completed.
+- Verification occurs before generating the next instruction.
+- Pause preserves all session state.
+- Resume restores the Guidance Session without losing progress.
+- Goal completion correctly cleans up all guidance resources.
+- Reminder behaviour differs appropriately between Guidance Levels.
+- Overlay remains click-through.
+- Overlay is hidden during screenshots.
+- Accessibility failures degrade gracefully.
+- The architecture supports future Vision integration without redesign.
+
+---
+
+# Developer Notes
+
+This milestone establishes the long-term architecture for Glint's interactive guidance system.
+
+Future milestones should extend this architecture rather than replace it.
+
+The following principles are expected to remain stable:
+
+- Goal-centric guidance
+- Accessibility-first target resolution
+- Outcome-based verification
+- Human-controlled interaction
+- Independent UI components
+- Event-driven coordination
+- Graceful degradation
+- Future extensibility
+
+Implementation details may evolve over time, but these architectural principles should remain unchanged unless a future design review explicitly revises them.
+
+---
+
+# Milestone Summary
+
+With Milestone 6A complete, Glint evolves from a conversational assistant into an interactive desktop navigation assistant.
+
+Instead of providing isolated instructions, Glint now:
+
+- Understands the user's goal
+- Maintains an active guidance session
+- Locates interface controls through Accessibility
+- Visually guides the user with overlays
+- Detects meaningful progress
+- Verifies the outcome of every instruction
+- Generates the next step based on the verified UI state
+- Stays with the user until the goal is completed or intentionally paused
+
+This milestone lays the architectural foundation for all future guidance capabilities, including Vision-assisted navigation, richer interaction models, and broader platform support.

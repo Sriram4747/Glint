@@ -1,0 +1,67 @@
+.startup-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(26, 26, 26, 0.98);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  transition: opacity 200ms ease;
+  border-radius: var(--radius-xl);
+}
+
+.startup-container.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.startup-orb-wrapper {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.startup-orb {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0, 120, 212, 0.4), transparent 70%);
+  box-shadow: 
+    0 0 24px rgba(0, 120, 212, 0.5), 
+    0 0 48px rgba(0, 120, 212, 0.25), 
+    0 0 72px rgba(0, 120, 212, 0.12);
+  animation: orbPulse 1.6s ease-in-out infinite, orbGlow 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.startup-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  animation: textFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
+  letter-spacing: 0.5px;
+}
+
+@keyframes orbPulse {
+  0% { transform: scale(0.96); opacity: 0.8; }
+  50% { transform: scale(1.04); opacity: 1; }
+  100% { transform: scale(0.96); opacity: 0.8; }
+}
+
+@keyframes orbGlow {
+  0% { transform: scale(0.4); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes textFadeIn {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
