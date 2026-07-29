@@ -8,9 +8,17 @@ interface Rectangle {
   height: number;
 }
 
+interface Rectangle {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface HighlightData {
   rect: Rectangle;
   label: string;
+  actionType?: string;
 }
 
 export const OverlayView: React.FC = () => {
@@ -39,7 +47,25 @@ export const OverlayView: React.FC = () => {
 
   if (!highlight) return null;
 
-  const { rect, label } = highlight;
+  const { rect, label, actionType = 'click' } = highlight;
+
+  // Action badge mapping
+  const getActionBadge = (type: string) => {
+    switch (type) {
+      case 'right_click':
+        return { text: '🖱️ Right-Click', class: 'action-right-click' };
+      case 'double_click':
+        return { text: '⚡ Double-Click', class: 'action-double-click' };
+      case 'type':
+        return { text: '⌨️ Type Text', class: 'action-type' };
+      case 'scroll':
+        return { text: '⏬ Scroll Down', class: 'action-scroll' };
+      default:
+        return { text: '🖱️ Click', class: 'action-click' };
+    }
+  };
+
+  const badge = getActionBadge(actionType);
 
   // Calculate arrow coordinates (centered above the target rectangle)
   const arrowWidth = 30;
@@ -51,7 +77,7 @@ export const OverlayView: React.FC = () => {
     <div className={`glint-overlay-container ${visible ? 'is-visible' : ''}`}>
       {/* Target Bounding Frame Highlight */}
       <div
-        className="glint-overlay-highlight pulsing-outline"
+        className={`glint-overlay-highlight pulsing-outline ${badge.class}`}
         style={{
           left: `${rect.x}px`,
           top: `${rect.y}px`,
@@ -59,16 +85,17 @@ export const OverlayView: React.FC = () => {
           height: `${rect.height}px`,
         }}
       >
-        {/* Subtle label tag attached to top of container */}
+        {/* Action badge & label tag attached to top of container */}
         <div className="glint-overlay-label-tag animate-slide-down">
-          {label}
+          <span className="glint-action-badge">{badge.text}</span>
+          <span className="glint-target-text">{label}</span>
         </div>
       </div>
 
       {/* Directional Pointer Arrow */}
       {rect.y > 50 && (
         <div
-          className="glint-overlay-arrow bounce-anim"
+          className={`glint-overlay-arrow bounce-anim ${badge.class}`}
           style={{
             left: `${arrowX}px`,
             top: `${arrowY}px`,
@@ -76,7 +103,7 @@ export const OverlayView: React.FC = () => {
             height: `${arrowHeight}px`,
           }}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="#d32f2f" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <polyline points="19 12 12 19 5 12"></polyline>
           </svg>

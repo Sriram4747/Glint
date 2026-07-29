@@ -20,69 +20,120 @@
 .glint-overlay-highlight {
   position: absolute;
   box-sizing: border-box;
-  border: 3px solid #d32f2f;
+  border-width: 3px;
+  border-style: solid;
   border-radius: 8px;
-  box-shadow: 
-    0 0 12px rgba(211, 47, 47, 0.5),
-    inset 0 0 8px rgba(211, 47, 47, 0.2);
   filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
   pointer-events: none;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Pulsing neon highlight effect */
+/* ── ACTION THEMES & COLOR CODING ──────────────────────────────── */
+
+/* 🖱️ Default Left-Click Theme (Cyan / Blue) */
+.action-click {
+  border-color: #0284c7;
+  color: #0284c7;
+  box-shadow: 0 0 12px rgba(2, 132, 199, 0.5), inset 0 0 8px rgba(2, 132, 199, 0.2);
+}
+.action-click .glint-overlay-label-tag {
+  background-color: #0284c7;
+}
+
+/* 🖱️ Right-Click Theme (Purple / Magenta) */
+.action-right-click {
+  border-color: #a855f7;
+  color: #a855f7;
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.65), inset 0 0 10px rgba(168, 85, 247, 0.3);
+}
+.action-right-click .glint-overlay-label-tag {
+  background-color: #9333ea;
+}
+
+/* ⚡ Double-Click Theme (Amber / Gold) */
+.action-double-click {
+  border-color: #f59e0b;
+  color: #f59e0b;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.65), inset 0 0 10px rgba(245, 158, 11, 0.3);
+}
+.action-double-click .glint-overlay-label-tag {
+  background-color: #d97706;
+}
+
+/* ⌨️ Type Text Theme (Emerald Green) */
+.action-type {
+  border-color: #10b981;
+  color: #10b981;
+  box-shadow: 0 0 14px rgba(16, 185, 129, 0.6), inset 0 0 8px rgba(16, 185, 129, 0.25);
+}
+.action-type .glint-overlay-label-tag {
+  background-color: #059669;
+}
+
+/* ⏬ Scroll Down Theme (Orange) */
+.action-scroll {
+  border-color: #f97316;
+  color: #f97316;
+  box-shadow: 0 0 14px rgba(249, 115, 22, 0.6), inset 0 0 8px rgba(249, 115, 22, 0.25);
+}
+.action-scroll .glint-overlay-label-tag {
+  background-color: #ea580c;
+}
+
+/* Pulsing neon highlight animation */
 @keyframes pulseGlow {
-  0% {
-    box-shadow: 0 0 8px rgba(211, 47, 47, 0.3), inset 0 0 4px rgba(211, 47, 47, 0.15);
-    border-color: #d32f2f;
-  }
-  50% {
-    box-shadow: 0 0 20px rgba(211, 47, 47, 0.65), inset 0 0 12px rgba(211, 47, 47, 0.3);
-    border-color: #ff5252; /* Lighter bright red for visual pulse peak */
-  }
-  100% {
-    box-shadow: 0 0 8px rgba(211, 47, 47, 0.3), inset 0 0 4px rgba(211, 47, 47, 0.15);
-    border-color: #d32f2f;
-  }
+  0% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.01); }
+  100% { opacity: 0.85; transform: scale(1); }
 }
 
 .pulsing-outline {
   animation: pulseGlow 1.8s infinite ease-in-out;
 }
 
-/* Small label tag attached above the highlight window */
+/* Small label & action badge tag attached above the highlight window */
 .glint-overlay-label-tag {
   position: absolute;
-  top: -26px;
+  top: -28px;
   left: -2px;
-  background-color: #d32f2f;
   color: #ffffff;
   font-family: 'Inter', system-ui, sans-serif;
   font-size: 11px;
   font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
   white-space: nowrap;
   pointer-events: none;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.glint-action-badge {
+  background: rgba(255, 255, 255, 0.25);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.glint-target-text {
+  font-weight: 700;
 }
 
 /* Bouncing indicator arrow */
 .glint-overlay-arrow {
   position: absolute;
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3)) drop-shadow(0 0 6px var(--color-accent, rgba(0, 120, 212, 0.3)));
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
   pointer-events: none;
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes bounceDown {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
 }
 
 .bounce-anim {

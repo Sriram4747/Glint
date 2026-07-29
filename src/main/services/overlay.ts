@@ -5,7 +5,7 @@ import { Logger } from './logger'
 
 export class OverlayService {
   private static wasVisibleBeforeScreenshot = false
-  private static currentHighlight: { rect: Rectangle; label: string } | null = null
+  private static currentHighlight: { rect: Rectangle; label: string; actionType?: string } | null = null
 
   private static normalizeToOverlayBounds(rect: Rectangle): Rectangle | null {
     const win = getOverlayWindow()
@@ -69,9 +69,9 @@ export class OverlayService {
   }
 
   /**
-   * Highlights a target UI control bounding rectangle on screen.
+   * Highlights a target UI control bounding rectangle on screen with an action badge.
    */
-  static highlight(rect: Rectangle, label: string): boolean {
+  static highlight(rect: Rectangle, label: string, actionType: string = 'click'): boolean {
     let win = getOverlayWindow()
     if (!win) {
       win = createOverlayWindow()
@@ -84,8 +84,8 @@ export class OverlayService {
       return false
     }
 
-    Logger.info(`OverlayService: Highlighting label "${label}" at UIA=${JSON.stringify(rect)} OverlayLocal=${JSON.stringify(localRect)}`)
-    this.currentHighlight = { rect: localRect, label }
+    Logger.info(`OverlayService: Highlighting label "${label}" [${actionType}] at UIA=${JSON.stringify(rect)} OverlayLocal=${JSON.stringify(localRect)}`)
+    this.currentHighlight = { rect: localRect, label, actionType }
 
     showOverlayWindow()
 
@@ -94,7 +94,7 @@ export class OverlayService {
     const sendUpdate = (): void => {
       const w = getOverlayWindow()
       if (w && !w.isDestroyed()) {
-        w.webContents.send('overlay:update', { rect: localRect, label })
+        w.webContents.send('overlay:update', { rect: localRect, label, actionType })
       }
     }
 

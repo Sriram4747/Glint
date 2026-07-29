@@ -279,7 +279,7 @@ export class GuidanceSessionService {
         
         if (nextStepCandidate && nextStepCandidate.targetLabel) {
           const localCheck = await AccessibilityService.search(nextStepCandidate.targetLabel)
-          if (localCheck.found && localCheck.visible) {
+          if (localCheck.found && localCheck.visible && localCheck.enabled) {
             // Local UIA detected that the user navigated to the next step target!
             Logger.info(`GuidanceSession: Local UIA detected next target "${nextStepCandidate.targetLabel}". Advancing step with ZERO API calls!`)
             this.activePlanIndex += 1
@@ -322,7 +322,18 @@ export class GuidanceSessionService {
 
       if (result.success && result.data) {
         const contract = result.data
-        if (contract.previousStepCompleted) {
+
+        // Check if Vision AI sees that the step completed OR if the target label returned by AI is visible on screen
+        let isStepDone = contract.previousStepCompleted
+        if (!isStepDone && contract.targetLabel && contract.targetLabel !== this.lastStepTargetLabel) {
+          const liveCheck = await AccessibilityService.search(contract.targetLabel)
+          if (liveCheck.found && liveCheck.visible && liveCheck.enabled) {
+            Logger.info(`GuidanceSession: Vision returned new visible target "${contract.targetLabel}". Auto-advancing step!`)
+            isStepDone = true
+          }
+        }
+
+        if (isStepDone) {
           this.stepIndex += 1
           this.lastScreenshot = captureResult.image
 
@@ -330,7 +341,17 @@ export class GuidanceSessionService {
             this.complete()
             return
           } else {
-            // Check if plan has next step or if AI provided new step
+            // Live Plan Self-Healing: If AI provided a specific visible enabled target on screen, apply it directly!
+            if (contract.targetLabel && contract.nextStep) {
+              const liveCheck = await AccessibilityService.search(contract.targetLabel)
+              if (liveCheck.found && liveCheck.visible && liveCheck.enabled) {
+                Logger.info(`GuidanceSession: Plan self-healed to live verified target "${contract.targetLabel}"`)
+                await this.applyNewStep(contract)
+                return
+              }
+            }
+
+            // Fallback to next plan step if valid
             if (this.activePlanSteps.length > 0 && this.activePlanIndex < this.activePlanSteps.length - 1) {
               this.activePlanIndex += 1
               await this.applyPlanStep(this.activePlanSteps[this.activePlanIndex])
@@ -354,17 +375,20 @@ export class GuidanceSessionService {
     }
   }
 
+  private static lastStepActionType = 'click'
+
   /**
    * Applies a step from the upfront multi-step plan.
    */
   private static async applyPlanStep(step: AIGoalPlanStep): Promise<void> {
     this.lastStepInstruction = step.instruction
     this.lastStepTargetLabel = step.targetLabel
+    this.lastStepActionType = step.actionType || 'click'
     
-    Logger.info(`GuidanceSession: Applying Plan Step ${step.stepIndex}: "${step.instruction}" (Target: "${step.targetLabel}")`)
+    Logger.info(`GuidanceSession: Applying Plan Step ${step.stepIndex}: "${step.instruction}" (Target: "${step.targetLabel}", Action: ${this.lastStepActionType})`)
     updateFloatingAssistantProgress(`Step ${step.stepIndex}: ${step.instruction}`, this.currentGoal)
 
-    await this.resolveAndHighlightTarget(step.targetLabel)
+    await this.resolveAndHighlightTarget(step.targetLabel, this.lastStepActionType)
   }
 
   // ── Screen Capture & Highlight Helpers ─────────────────────────────
@@ -399,14 +423,15 @@ export class GuidanceSessionService {
   private static async applyNewStep(step: AIResponseContract): Promise<void> {
     this.lastStepInstruction = step.nextStep
     this.lastStepTargetLabel = step.targetLabel
+    this.lastStepActionType = step.actionType || 'click'
     
-    Logger.info(`GuidanceSession: Applying Step ${this.stepIndex}: "${step.nextStep}" (Target: "${step.targetLabel}")`)
+    Logger.info(`GuidanceSession: Applying Step ${this.stepIndex}: "${step.nextStep}" (Target: "${step.targetLabel}", Action: ${this.lastStepActionType})`)
     updateFloatingAssistantProgress(`Step ${this.stepIndex}: ${step.nextStep}`, this.currentGoal)
 
-    await this.resolveAndHighlightTarget(step.targetLabel)
+    await this.resolveAndHighlightTarget(step.targetLabel, this.lastStepActionType)
   }
 
-  private static async resolveAndHighlightTarget(label: string): Promise<boolean> {
+  private static async resolveAndHighlightTarget(label: string, actionType = 'click'): Promise<boolean> {
     if (!label) {
       OverlayService.clear()
       return false
@@ -414,8 +439,13 @@ export class GuidanceSessionService {
 
     try {
       const searchResult = await AccessibilityService.search(label)
-      if (searchResult.found && searchResult.visible) {
-        return OverlayService.highlight(searchResult.rectangle, label)
+      if (searchResult.found && searchResult.visible && searchResult.enabled) {
+        return OverlayService.highlight(searchResult.rectangle, label, actionType)
+      } else if (searchResult.found && searchResult.visible && !searchResult.enabled) {
+        Logger.warn(`GuidanceSession: Target "${label}" is greyed out / disabled on screen. Hiding overlay.`)
+        updateFloatingAssistantProgress(`⚠️ "${label}" is currently greyed out / disabled`, this.currentGoal)
+        OverlayService.clear()
+        return false
       } else if (searchResult.found && searchResult.isOffscreen) {
         Logger.info(`GuidanceSession: Target "${label}" found but off-screen. Displaying scroll prompt.`)
         updateFloatingAssistantProgress(`⏬ Scroll down to find "${label}"`, this.currentGoal)

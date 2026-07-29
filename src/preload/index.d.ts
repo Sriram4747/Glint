@@ -19,7 +19,7 @@ interface GlintAPI {
   advanceStep: () => Promise<void>
   getGoalHistory: () => Promise<any[]>
   resetGoalInactivity: () => void
-  onOverlayUpdate: (callback: (data: { rect: any; label: string }) => void) => void
+  onOverlayUpdate: (callback: (data: { rect: any; label: string; actionType?: string }) => void) => void
   onOverlayClear: (callback: () => void) => void
   onFloatingUpdate: (callback: (data: { step: string; goal: string }) => void) => void
 }

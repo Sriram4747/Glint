@@ -66,13 +66,30 @@ if (-not $winElement) {
     $windows = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
     $activeWindows = @()
     foreach ($w in $windows) {
+        $cls = $w.Current.ClassName
+        $isPopup = ($cls -eq "#32768") -or ($cls -like "*ContextMenu*") -or ($cls -like "*Popup*") -or ($cls -like "*Flyout*")
         $rect = $w.Current.BoundingRectangle
-        if ($w.Current.Name -and $rect.Width -gt 100 -and $rect.Height -gt 100 -and (-not [double]::IsInfinity($rect.X))) {
+        
+        if ($isPopup) {
+            $activeWindows += $w
+        } elseif ($w.Current.Name -and $rect.Width -gt 20 -and $rect.Height -gt 20 -and (-not [double]::IsInfinity($rect.X))) {
             $activeWindows += $w
         }
     }
 } else {
     $activeWindows = @($winElement)
+}
+
+# Always append any active context menus, flyouts, or top-level popups from root
+$popups = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+foreach ($p in $popups) {
+    $cls = $p.Current.ClassName
+    $isPopup = ($cls -eq "#32768") -or ($cls -like "*ContextMenu*") -or ($cls -like "*Popup*") -or ($cls -like "*Flyout*")
+    if ($isPopup) {
+        if ($activeWindows -notcontains $p) {
+            $activeWindows += $p
+        }
+    }
 }
 
 # 2. Search target element inside resolved windows
@@ -88,10 +105,19 @@ foreach ($win in $activeWindows) {
     }
 }
 
-# Tier 2: Whole-word regex matching fallback if Tier 1 yields nothing
+# Tier 1.5: Desktop Root Search if active windows yielded no matches
+if ($matches.Count -eq 0) {
+    $prop = [System.Windows.Automation.AutomationElement]::NameProperty
+    $cond = New-Object System.Windows.Automation.PropertyCondition($prop, $targetLabel)
+    $rootMatches = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond)
+    foreach ($el in $rootMatches) {
+        $matches += $el
+    }
+}
+
+# Tier 2: Whole-word regex matching fallback if Tier 1 & 1.5 yield nothing
 if ($matches.Count -eq 0) {
     $cleanLabel = [regex]::Escape($targetLabel.Trim())
-    # Require whole-word match for short words (<=4 chars) to prevent 'On' matching 'Personalization'
     $regexPattern = if ($targetLabel.Length -le 4) { "(?i)^\s*$cleanLabel\s*$" } else { "(?i)\b$cleanLabel\b" }
 
     foreach ($win in $activeWindows) {
@@ -104,6 +130,31 @@ if ($matches.Count -eq 0) {
         }
     }
 }
+
+# Tier 3: Substring & Alias matching fallback if targetLabel contains extra words/symbols (e.g. 'Give access to' vs 'Grant access to' vs 'Share')
+if ($matches.Count -eq 0) {
+    $cleanLabel = [regex]::Escape($targetLabel.Trim())
+    $aliases = @($cleanLabel)
+    if ($targetLabel -imatch "Give access" -or $targetLabel -imatch "Grant access") {
+        $aliases += "Grant access", "Give access", "Share with", "Share"
+    }
+
+    foreach ($win in $activeWindows) {
+        $all = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+        foreach ($el in $all) {
+            $name = $el.Current.Name
+            if ($name) {
+                foreach ($alias in $aliases) {
+                    if ($name -match "(?i)$alias") {
+                        $matches += $el
+                        break
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 # Select best candidate: Prioritize interactive controls and controls with TogglePattern / InvokePattern / SelectionItemPattern
 $foundElement = $null
@@ -120,6 +171,18 @@ foreach ($m in $matches) {
     $cType = $m.Current.ControlType.ProgrammaticName
     if ($cType -in @("ControlType.Button", "ControlType.CheckBox", "ControlType.RadioButton", "ControlType.Custom", "ControlType.ListItem", "ControlType.SplitButton", "ControlType.MenuItem")) {
         $score += 50
+    }
+
+    # Heavily penalize disabled (greyed out) controls so active controls are always prioritized
+    if (-not $m.Current.IsEnabled) {
+        $score -= 200
+    } else {
+        $score += 100
+    }
+
+    # Penalize offscreen controls
+    if ($m.Current.IsOffscreen) {
+        $score -= 100
     }
 
     # Boost controls supporting TogglePattern (e.g. Remote Desktop Toggle Switch)

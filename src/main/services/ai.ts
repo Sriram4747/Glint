@@ -1,9 +1,12 @@
 import { Logger } from './logger'
 import { PromptService } from './prompt'
 
+export type ActionType = 'click' | 'right_click' | 'double_click' | 'scroll' | 'type'
+
 export interface AIResponseContract {
   nextStep: string
   targetLabel: string
+  actionType?: ActionType
   goalCompleted: boolean
   previousStepCompleted?: boolean
   reason?: string
@@ -19,6 +22,7 @@ export interface AIGoalPlanStep {
   stepIndex: number
   instruction: string
   targetLabel: string
+  actionType?: ActionType
 }
 
 export interface AIGoalPlan {
@@ -41,6 +45,20 @@ export class AIService {
     'gemini-2.5-flash',
     'gemini-3.6-flash'
   ]
+
+  private static sanitizeActionType(val: any): ActionType {
+    if (typeof val === 'string') {
+      const lower = val.toLowerCase().trim()
+      if (['click', 'right_click', 'double_click', 'scroll', 'type'].includes(lower)) {
+        return lower as ActionType
+      }
+      if (lower.includes('right')) return 'right_click'
+      if (lower.includes('double')) return 'double_click'
+      if (lower.includes('type') || lower.includes('enter')) return 'type'
+      if (lower.includes('scroll')) return 'scroll'
+    }
+    return 'click'
+  }
 
   /**
    * Cleans and parses raw text response into a structured AIResponseContract JSON.
@@ -66,6 +84,7 @@ export class AIService {
       return {
         nextStep: parsed.nextStep,
         targetLabel: parsed.targetLabel,
+        actionType: this.sanitizeActionType(parsed.actionType),
         goalCompleted: parsed.goalCompleted,
         previousStepCompleted: parsed.previousStepCompleted,
         reason: parsed.reason
@@ -101,7 +120,8 @@ export class AIService {
       const steps: AIGoalPlanStep[] = rawSteps.map((s: any, idx: number) => ({
         stepIndex: typeof s.stepIndex === 'number' ? s.stepIndex : idx + 1,
         instruction: typeof s.instruction === 'string' ? s.instruction : (s.nextStep || ''),
-        targetLabel: typeof s.targetLabel === 'string' ? s.targetLabel : ''
+        targetLabel: typeof s.targetLabel === 'string' ? s.targetLabel : '',
+        actionType: this.sanitizeActionType(s.actionType)
       })).filter((s: AIGoalPlanStep) => s.instruction.length > 0)
 
       if (steps.length === 0) {
