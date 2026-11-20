@@ -2,6 +2,7 @@
   "compilerOptions": {
     "composite": true,
     "module": "ESNext",
+    "target": "ES2022",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
@@ -13,6 +14,7 @@
     "types": ["electron-vite/node"]
   },
   "include": [
+    "src/shared/**/*",
     "src/main/**/*",
     "src/preload/**/*",
     "electron.vite.config.*"

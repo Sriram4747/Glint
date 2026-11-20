@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, session } from 'electron'
 import { createTray } from './tray'
 import { registerIPC } from './ipc'
 import { ServiceManager, ShortcutService } from './services'
@@ -17,7 +17,16 @@ app.on('second-instance', () => {
   createAssistantWindow()
 })
 
+app.on('web-contents-created', (_, contents) => {
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  contents.on('will-navigate', event => event.preventDefault())
+  contents.on('will-attach-webview', event => event.preventDefault())
+})
+
 app.whenReady().then(() => {
+  if (!gotTheLock) return
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, reply) => reply(false))
+  session.defaultSession.setPermissionCheckHandler(() => false)
   // Register future services
   serviceManager.registerPlaceholders()
 

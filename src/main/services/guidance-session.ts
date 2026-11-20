@@ -1,8 +1,6 @@
-import { getOverlayWindow, destroyOverlayWindow } from '../windows/overlay'
 import { 
   createFloatingAssistantWindow, 
   destroyFloatingAssistantWindow, 
-  getFloatingAssistantWindow,
   showFloatingAssistantWindow, 
   hideFloatingAssistantWindow,
   updateFloatingAssistantProgress
@@ -23,6 +21,9 @@ export enum GuidanceSessionState {
 }
 
 export class GuidanceSessionService {
+  private static generation = 0
+  private static request?: AbortController
+  private static initializing = false
   private static state: GuidanceSessionState = GuidanceSessionState.Inactive
   private static currentGoal = ''
   private static currentApiKey = ''
@@ -61,8 +62,18 @@ export class GuidanceSessionService {
    * Starts a visual guidance session with Local-First Hybrid Architecture.
    */
   static async start(goal: string, apiKey: string, preferredModel = 'gemini-3.1-flash-lite'): Promise<void> {
-    Logger.info(`GuidanceSession: Starting visual guidance session for goal: "${goal}" using model: "${preferredModel}"`)
+    Logger.info('GuidanceSession: Starting visual guidance session')
     
+    this.cancelAutoCheck()
+    OverlayService.clear()
+    this.request?.abort()
+    this.request = new AbortController()
+    const generation = ++this.generation
+    this.initializing = true
+    this.isProcessingVerification = false
+    this.lastStepInstruction = ''
+    this.lastStepTargetLabel = ''
+    this.lastScreenshot = ''
     this.state = GuidanceSessionState.Guiding
     this.currentGoal = goal
     this.currentApiKey = apiKey
@@ -85,10 +96,12 @@ export class GuidanceSessionService {
 
     // 2. Perform upfront multi-step plan generation (Single API Call)
     try {
-      const captureResult = await this.captureCleanScreen()
+      const captureResult = await CaptureService.capture()
+      if (generation !== this.generation) throw new Error('Guidance interrupted.')
       this.lastScreenshot = captureResult.image
 
-      const planResult = await AIService.analyzeGoalPlan(goal, captureResult.image, apiKey, this.preferredModel)
+      const planResult = await AIService.analyzeGoalPlan(goal, captureResult.image, apiKey, this.preferredModel, this.request.signal)
+      if (generation !== this.generation) throw new Error('Guidance interrupted.')
       
       if (planResult.success && planResult.data && planResult.data.steps.length > 0) {
         this.activePlanSteps = planResult.data.steps
@@ -98,7 +111,8 @@ export class GuidanceSessionService {
       } else {
         // Fallback to single step initial analysis if plan generation fails
         Logger.warn('GuidanceSession: Upfront plan generation failed, falling back to initial step analysis...')
-        const aiResult = await AIService.analyzeInitial(goal, captureResult.image, apiKey, this.preferredModel)
+        const aiResult = await AIService.analyzeInitial(goal, captureResult.image, apiKey, this.preferredModel, this.request.signal)
+        if (generation !== this.generation) throw new Error('Guidance interrupted.')
         if (aiResult.success && aiResult.data) {
           await this.applyNewStep(aiResult.data)
         } else {
@@ -107,9 +121,12 @@ export class GuidanceSessionService {
       }
     } catch (err: any) {
       Logger.error('GuidanceSession: Failed to initialize first step:', err)
-      this.handleGracefulDegradation(`Error: ${err.message}. Click to retry.`)
+      if (generation === this.generation) this.cancel()
+      throw err
     }
 
+    if (generation !== this.generation) throw new Error('Guidance interrupted.')
+    this.initializing = false
     // 3. Start automatic 5-second verification timer loop
     this.scheduleNextAutoCheck()
   }
@@ -121,6 +138,13 @@ export class GuidanceSessionService {
     if (this.state !== GuidanceSessionState.Guiding) return
     Logger.info('GuidanceSession: Pausing guidance session')
     
+    if (this.initializing) {
+      this.cancel()
+      return
+    }
+    this.request?.abort()
+    const generation = ++this.generation
+    this.isProcessingVerification = false
     this.state = GuidanceSessionState.Paused
     this.cancelAutoCheck()
 
@@ -143,10 +167,11 @@ export class GuidanceSessionService {
     })
 
     notification.on('action', (_, index) => {
-      if (index === 0) this.resume()
+      if (generation !== this.generation) return
+      if (index === 0) void this.resume()
       else if (index === 1) this.complete()
     })
-    notification.on('click', () => this.resume())
+    notification.on('click', () => { if (generation === this.generation) void this.resume() })
     notification.show()
   }
 
@@ -155,6 +180,7 @@ export class GuidanceSessionService {
    */
   static async resume(): Promise<void> {
     if (this.state !== GuidanceSessionState.Paused) return
+    this.request = new AbortController()
     Logger.info('GuidanceSession: Resuming guidance session')
     
     this.state = GuidanceSessionState.Guiding
@@ -168,7 +194,7 @@ export class GuidanceSessionService {
     }
 
     if (this.lastStepTargetLabel) {
-      await this.resolveAndHighlightTarget(this.lastStepTargetLabel)
+      await this.resolveAndHighlightTarget(this.lastStepTargetLabel, this.lastStepActionType)
     }
 
     this.scheduleNextAutoCheck()
@@ -179,6 +205,8 @@ export class GuidanceSessionService {
    */
   static complete(): void {
     Logger.info('GuidanceSession: Goal completed successfully')
+    this.request?.abort()
+    this.generation++
     this.state = GuidanceSessionState.Completed
     this.cancelAutoCheck()
 
@@ -197,6 +225,8 @@ export class GuidanceSessionService {
       body: `Successfully finished: "${this.currentGoal}"`
     }).show()
 
+    this.currentApiKey = ''
+    this.lastScreenshot = ''
     this.state = GuidanceSessionState.Inactive
   }
 
@@ -206,7 +236,7 @@ export class GuidanceSessionService {
    */
   static async advanceStep(): Promise<void> {
     if (this.state !== GuidanceSessionState.Guiding) return
-    if (this.isProcessingVerification) return
+    if (this.initializing || this.isProcessingVerification) return
     Logger.info('GuidanceSession: Manual step advancement requested')
 
     this.cancelAutoCheck()
@@ -217,8 +247,16 @@ export class GuidanceSessionService {
       this.stepIndex = this.activePlanIndex + 1
       this.localFailedCount = 0
       Logger.info(`GuidanceSession: Manual Next clicked. Advancing to Plan Step ${this.stepIndex} locally!`)
-      await this.applyPlanStep(this.activePlanSteps[this.activePlanIndex])
-      this.scheduleNextAutoCheck()
+      const generation = this.generation
+      this.isProcessingVerification = true
+      try {
+        await this.applyPlanStep(this.activePlanSteps[this.activePlanIndex])
+      } finally {
+        if (generation === this.generation) {
+          this.isProcessingVerification = false
+          this.scheduleNextAutoCheck()
+        }
+      }
       return
     }
 
@@ -229,7 +267,12 @@ export class GuidanceSessionService {
    * Cancels guidance session.
    */
   static cancel(): void {
+    this.request?.abort()
+    this.generation++
+    this.initializing = false
     Logger.info('GuidanceSession: Cancelling goal session')
+    this.currentApiKey = ''
+    this.lastScreenshot = ''
     this.state = GuidanceSessionState.Inactive
     this.cancelAutoCheck()
 
@@ -269,6 +312,7 @@ export class GuidanceSessionService {
    * 2. Only invokes Vision Model API as a fallback if local UIA progress cannot be resolved after 2 attempts.
    */
   private static async runVerification(): Promise<void> {
+    const generation = this.generation
     this.isProcessingVerification = true
     updateFloatingAssistantProgress(`Step ${this.stepIndex}: ${this.lastStepInstruction}`, this.currentGoal)
 
@@ -279,9 +323,10 @@ export class GuidanceSessionService {
         
         if (nextStepCandidate && nextStepCandidate.targetLabel) {
           const localCheck = await AccessibilityService.search(nextStepCandidate.targetLabel)
+          if (generation !== this.generation) return
           if (localCheck.found && localCheck.visible && localCheck.enabled) {
             // Local UIA detected that the user navigated to the next step target!
-            Logger.info(`GuidanceSession: Local UIA detected next target "${nextStepCandidate.targetLabel}". Advancing step with ZERO API calls!`)
+            Logger.info('GuidanceSession: Local UIA detected next target')
             this.activePlanIndex += 1
             this.stepIndex = this.activePlanIndex + 1
             this.localFailedCount = 0
@@ -295,6 +340,7 @@ export class GuidanceSessionService {
       // Check if current step target is still on screen or lost
       if (this.lastStepTargetLabel && !OverlayService.hasActiveHighlight()) {
         await this.resolveAndHighlightTarget(this.lastStepTargetLabel)
+        if (generation !== this.generation) return
       }
 
       // 2. Increment local failed count. If < 2 ticks, give user time without calling Vision API
@@ -308,7 +354,8 @@ export class GuidanceSessionService {
       // 3. Fallback: Query Vision Model if local UIA has not resolved progress after 2 ticks (~10s)
       Logger.info('GuidanceSession: Invoking Vision AI model fallback to verify outcome...')
       this.localFailedCount = 0
-      const captureResult = await this.captureCleanScreen()
+      const captureResult = await CaptureService.capture()
+      if (generation !== this.generation) return
 
       const result = await AIService.verifyStep(
         this.currentGoal,
@@ -317,9 +364,11 @@ export class GuidanceSessionService {
         this.lastScreenshot,
         captureResult.image,
         this.currentApiKey,
-        this.preferredModel
+        this.preferredModel,
+        this.request?.signal
       )
 
+      if (generation !== this.generation) return
       if (result.success && result.data) {
         const contract = result.data
 
@@ -327,8 +376,9 @@ export class GuidanceSessionService {
         let isStepDone = contract.previousStepCompleted
         if (!isStepDone && contract.targetLabel && contract.targetLabel !== this.lastStepTargetLabel) {
           const liveCheck = await AccessibilityService.search(contract.targetLabel)
+          if (generation !== this.generation) return
           if (liveCheck.found && liveCheck.visible && liveCheck.enabled) {
-            Logger.info(`GuidanceSession: Vision returned new visible target "${contract.targetLabel}". Auto-advancing step!`)
+            Logger.info('GuidanceSession: Vision returned new visible target')
             isStepDone = true
           }
         }
@@ -344,8 +394,9 @@ export class GuidanceSessionService {
             // Live Plan Self-Healing: If AI provided a specific visible enabled target on screen, apply it directly!
             if (contract.targetLabel && contract.nextStep) {
               const liveCheck = await AccessibilityService.search(contract.targetLabel)
+              if (generation !== this.generation) return
               if (liveCheck.found && liveCheck.visible && liveCheck.enabled) {
-                Logger.info(`GuidanceSession: Plan self-healed to live verified target "${contract.targetLabel}"`)
+                Logger.info('GuidanceSession: Plan self-healed to live verified target')
                 await this.applyNewStep(contract)
                 return
               }
@@ -368,8 +419,8 @@ export class GuidanceSessionService {
     } catch (err) {
       Logger.error('GuidanceSession: Verification run failed:', err)
     } finally {
-      this.isProcessingVerification = false
-      if (this.state === GuidanceSessionState.Guiding) {
+      if (generation === this.generation) {
+        this.isProcessingVerification = false
         this.scheduleNextAutoCheck()
       }
     }
@@ -385,7 +436,7 @@ export class GuidanceSessionService {
     this.lastStepTargetLabel = step.targetLabel
     this.lastStepActionType = step.actionType || 'click'
     
-    Logger.info(`GuidanceSession: Applying Plan Step ${step.stepIndex}: "${step.instruction}" (Target: "${step.targetLabel}", Action: ${this.lastStepActionType})`)
+    Logger.info('GuidanceSession: Applying Plan Step')
     updateFloatingAssistantProgress(`Step ${step.stepIndex}: ${step.instruction}`, this.currentGoal)
 
     await this.resolveAndHighlightTarget(step.targetLabel, this.lastStepActionType)
@@ -393,39 +444,12 @@ export class GuidanceSessionService {
 
   // ── Screen Capture & Highlight Helpers ─────────────────────────────
 
-  /**
-   * Fast, smooth screen capture using opacity toggle to avoid window manager overhead.
-   */
-  private static async captureCleanScreen(): Promise<{ image: string }> {
-    const overlayWin = getOverlayWindow()
-    const floatingWin = getFloatingAssistantWindow()
-    
-    if (overlayWin && !overlayWin.isDestroyed() && overlayWin.isVisible()) {
-      overlayWin.setOpacity(0)
-    }
-    if (floatingWin && !floatingWin.isDestroyed() && floatingWin.isVisible()) {
-      floatingWin.setOpacity(0)
-    }
-
-    try {
-      const result = await CaptureService.capture()
-      return { image: result.image }
-    } finally {
-      if (overlayWin && !overlayWin.isDestroyed()) {
-        overlayWin.setOpacity(1)
-      }
-      if (floatingWin && !floatingWin.isDestroyed()) {
-        floatingWin.setOpacity(1)
-      }
-    }
-  }
-
   private static async applyNewStep(step: AIResponseContract): Promise<void> {
     this.lastStepInstruction = step.nextStep
     this.lastStepTargetLabel = step.targetLabel
     this.lastStepActionType = step.actionType || 'click'
     
-    Logger.info(`GuidanceSession: Applying Step ${this.stepIndex}: "${step.nextStep}" (Target: "${step.targetLabel}", Action: ${this.lastStepActionType})`)
+    Logger.info('GuidanceSession: Applying Step')
     updateFloatingAssistantProgress(`Step ${this.stepIndex}: ${step.nextStep}`, this.currentGoal)
 
     await this.resolveAndHighlightTarget(step.targetLabel, this.lastStepActionType)
@@ -437,34 +461,34 @@ export class GuidanceSessionService {
       return false
     }
 
+    const generation = this.generation
     try {
       const searchResult = await AccessibilityService.search(label)
+      if (generation !== this.generation) return false
       if (searchResult.found && searchResult.visible && searchResult.enabled) {
         return OverlayService.highlight(searchResult.rectangle, label, actionType)
       } else if (searchResult.found && searchResult.visible && !searchResult.enabled) {
-        Logger.warn(`GuidanceSession: Target "${label}" is greyed out / disabled on screen. Hiding overlay.`)
+        Logger.warn('GuidanceSession: Disabled target')
         updateFloatingAssistantProgress(`⚠️ "${label}" is currently greyed out / disabled`, this.currentGoal)
         OverlayService.clear()
         return false
       } else if (searchResult.found && searchResult.isOffscreen) {
-        Logger.info(`GuidanceSession: Target "${label}" found but off-screen. Displaying scroll prompt.`)
+        Logger.info('GuidanceSession: Offscreen target')
         updateFloatingAssistantProgress(`⏬ Scroll down to find "${label}"`, this.currentGoal)
         OverlayService.clear()
         return false
       } else {
-        Logger.warn(`GuidanceSession: Target "${label}" not resolved by UIA. Hiding overlay.`)
+        Logger.warn('GuidanceSession: Target unavailable')
+        updateFloatingAssistantProgress(this.lastStepInstruction + ' (Control not located)', this.currentGoal)
         OverlayService.clear()
         return false
       }
     } catch (err) {
+      if (generation !== this.generation) return false
       Logger.error('GuidanceSession: Target highlight search failed:', err)
       OverlayService.clear()
       return false
     }
   }
 
-  private static handleGracefulDegradation(message: string): void {
-    updateFloatingAssistantProgress(message, this.currentGoal)
-    OverlayService.clear()
-  }
 }

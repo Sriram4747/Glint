@@ -2,20 +2,20 @@ import React, { useState, useEffect } from 'react';
 import './SystemDetailsView.css';
 import { GlintLogo } from '@/components/GlintLogo';
 import { Button } from '@/components/Button';
-import { PLACEHOLDER_SYSTEM_INFO } from '@/types';
 import type { SystemInfo } from '@/types';
 
 export const SystemDetailsView: React.FC = () => {
-  const [systemInfo, setSystemInfo] = useState<SystemInfo>(PLACEHOLDER_SYSTEM_INFO);
+  const [systemInfo, setSystemInfo] = useState<Partial<SystemInfo>>({});
 
+  const [pending, setPending] = useState(true);
   useEffect(() => {
     window.glintAPI?.getSystemInfo().then((info) => {
       if (info) {
-        setSystemInfo(info as any);
+        setSystemInfo(info);
       }
     }).catch(err => {
       console.error('Failed to get system info:', err);
-    });
+    }).finally(() => setPending(false));
   }, []);
 
   const closeWindow = () => {
@@ -25,7 +25,7 @@ export const SystemDetailsView: React.FC = () => {
   const systemDetails = [
     {
       label: 'Computer Name',
-      value: systemInfo.computerName,
+      value: systemInfo.computerName || (pending ? 'Loading…' : 'Unavailable'),
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
@@ -36,7 +36,7 @@ export const SystemDetailsView: React.FC = () => {
     },
     {
       label: 'Windows Version',
-      value: systemInfo.windowsVersion,
+      value: systemInfo.windowsVersion || (pending ? 'Loading…' : 'Unavailable'),
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" />
@@ -45,7 +45,7 @@ export const SystemDetailsView: React.FC = () => {
     },
     {
       label: 'CPU',
-      value: systemInfo.cpu,
+      value: systemInfo.cpu || (pending ? 'Loading…' : 'Unavailable'),
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="4" y="4" width="16" height="16" rx="2" />
@@ -56,7 +56,7 @@ export const SystemDetailsView: React.FC = () => {
     },
     {
       label: 'RAM',
-      value: systemInfo.ram,
+      value: systemInfo.ram || (pending ? 'Loading…' : 'Unavailable'),
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M6 18V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12" />
@@ -68,7 +68,7 @@ export const SystemDetailsView: React.FC = () => {
     },
     {
       label: 'GPU',
-      value: systemInfo.gpu,
+      value: systemInfo.gpu || (pending ? 'Loading…' : 'Unavailable'),
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2" y="6" width="20" height="12" rx="2" />
@@ -79,7 +79,7 @@ export const SystemDetailsView: React.FC = () => {
     },
     {
       label: 'Screen Resolution',
-      value: systemInfo.screenResolution,
+      value: systemInfo.screenResolution || (pending ? 'Loading…' : 'Unavailable'),
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -90,7 +90,7 @@ export const SystemDetailsView: React.FC = () => {
     },
     {
       label: 'Display Scaling',
-      value: systemInfo.displayScaling,
+      value: systemInfo.displayScaling || (pending ? 'Loading…' : 'Unavailable'),
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="11" cy="11" r="8" />
@@ -102,7 +102,7 @@ export const SystemDetailsView: React.FC = () => {
     },
     {
       label: 'App Version',
-      value: systemInfo.appVersion,
+      value: systemInfo.appVersion || (pending ? 'Loading…' : 'Unavailable'),
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />

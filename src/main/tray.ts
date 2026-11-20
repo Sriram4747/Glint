@@ -1,3 +1,5 @@
+import { GoalService } from './services/goal'
+import { GuidanceSessionService } from './services/guidance-session'
 import { Tray, Menu, nativeImage, app } from 'electron'
 import path from 'path'
 import { createAssistantWindow } from './windows/assistant'
@@ -14,6 +16,8 @@ export function createTray(): void {
   tray.setToolTip('Glint — AI Navigation Assistant')
 
   const contextMenu = Menu.buildFromTemplate([
+    { label: 'Open Assistant (Ctrl+Shift+Space)', click: createAssistantWindow },
+    { label: 'Stop Guidance', click: () => { GuidanceSessionService.cancel(); GoalService.clearSession() } },
     {
       label: 'System Details',
       click: (): void => {

@@ -1,7 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import type { GoalInput } from '../shared/input'
+
+function subscribe<T>(channel: string, callback: (data: T) => void): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, data: T) => callback(data)
+  ipcRenderer.on(channel, listener)
+  return () => { ipcRenderer.removeListener(channel, listener) }
+}
 
 const glintAPI = {
+  onWindowShown: (callback: () => void) => subscribe('window:shown', callback),
+  onSessionRestored: (callback: (session: unknown) => void) => subscribe('goal:session-restored', callback),
   // Window control
   closeWindow: (): void => {
     ipcRenderer.send('window:close')
@@ -35,12 +43,12 @@ const glintAPI = {
   },
 
   // Screen capture
-  captureScreen: (): Promise<string> => {
+  captureScreen: (): Promise<import('../main/services/capture').CaptureResult> => {
     return ipcRenderer.invoke('screen:capture')
   },
 
   // Goal orchestration
-  executeGoalStep: (goal: string): Promise<any> => {
+  executeGoalStep: (goal: string | GoalInput): Promise<any> => {
     return ipcRenderer.invoke('goal:execute', goal)
   },
   clearGoalSession: (): Promise<void> => {
@@ -69,27 +77,9 @@ const glintAPI = {
   },
   
   // Overlay communication
-  onOverlayUpdate: (callback: (data: { rect: any; label: string }) => void): void => {
-    ipcRenderer.on('overlay:update', (_, data) => callback(data))
-  },
-  onOverlayClear: (callback: () => void): void => {
-    ipcRenderer.on('overlay:clear', () => callback())
-  },
-  onFloatingUpdate: (callback: (data: { step: string; goal: string }) => void): void => {
-    ipcRenderer.on('floating:update', (_, data) => callback(data))
-  }
+  onOverlayUpdate: (callback: (data: { rect: any; label: string }) => void) => subscribe('overlay:update', callback),
+  onOverlayClear: (callback: () => void) => subscribe('overlay:clear', callback),
+  onFloatingUpdate: (callback: (data: { step: string; goal: string }) => void) => subscribe('floating:update', callback)
 }
 
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('glintAPI', glintAPI)
-  } catch (error) {
-    console.error('Failed to expose APIs:', error)
-  }
-} else {
-  // @ts-ignore (for fallback in development)
-  window.electron = electronAPI
-  // @ts-ignore
-  window.glintAPI = glintAPI
-}
+contextBridge.exposeInMainWorld('glintAPI', glintAPI)

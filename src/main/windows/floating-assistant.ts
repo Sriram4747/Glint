@@ -1,8 +1,10 @@
+import { registerWindow } from './roles'
 import { BrowserWindow, screen } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 
 let floatingAssistantWindow: BrowserWindow | null = null
+let latestProgress: { step: string; goal: string } | null = null
 let lastFloatingPosition: { x: number; y: number } | null = null
 
 export function createFloatingAssistantWindow(): BrowserWindow {
@@ -36,9 +38,10 @@ export function createFloatingAssistantWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   })
+  registerWindow(floatingAssistantWindow, 'floating-assistant')
 
   // Cache user dragging positions
   floatingAssistantWindow.on('move', () => {
@@ -50,10 +53,11 @@ export function createFloatingAssistantWindow(): BrowserWindow {
 
   floatingAssistantWindow.on('closed', () => {
     floatingAssistantWindow = null
+    latestProgress = null
   })
 
-  floatingAssistantWindow.on('ready-to-show', () => {
-    floatingAssistantWindow?.show()
+  floatingAssistantWindow.webContents.on('did-finish-load', () => {
+    if (latestProgress) floatingAssistantWindow?.webContents.send('floating:update', latestProgress)
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -94,6 +98,7 @@ export function hideFloatingAssistantWindow(): void {
 }
 export function updateFloatingAssistantProgress(step: string, goal: string): void {
   if (floatingAssistantWindow && !floatingAssistantWindow.isDestroyed()) {
-    floatingAssistantWindow.webContents.send('floating:update', { step, goal })
+    latestProgress = { step, goal }
+    floatingAssistantWindow.webContents.send('floating:update', latestProgress)
   }
 }

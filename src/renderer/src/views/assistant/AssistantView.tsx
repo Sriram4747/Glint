@@ -77,6 +77,7 @@ export const AssistantView: React.FC = () => {
   const [bannerGoal, setBannerGoal] = useState<string | null>(null);
   const [pendingSession, setPendingSession] = useState<any>(null);
 
+  const requestId = useRef(0);
   const displaySectionRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -91,10 +92,7 @@ export const AssistantView: React.FC = () => {
       }, 50);
     };
 
-    window.electron?.ipcRenderer?.on('window:shown', handleFocusInput);
-    return () => {
-      window.electron?.ipcRenderer?.removeListener('window:shown', handleFocusInput);
-    };
+    return window.glintAPI.onWindowShown(handleFocusInput);
   }, []);
 
   // Listen for Escape key to pause active guidance session
@@ -169,15 +167,12 @@ export const AssistantView: React.FC = () => {
       }
     };
 
-    window.electron?.ipcRenderer?.on('window:shown', handleWindowShown);
-    return () => {
-      window.electron?.ipcRenderer?.removeListener('window:shown', handleWindowShown);
-    };
+    return window.glintAPI.onWindowShown(handleWindowShown);
   }, []);
 
   // Listen for native notification actions (Continue) restoring the session
   useEffect(() => {
-    const handleSessionRestored = (_event: any, restoredSession: any) => {
+    const handleSessionRestored = (restoredSession: any) => {
       if (restoredSession && restoredSession.currentGoal) {
         setCurrentGoal(restoredSession.currentGoal);
         setResponse(restoredSession.latestResponse);
@@ -185,10 +180,7 @@ export const AssistantView: React.FC = () => {
       }
     };
 
-    window.electron?.ipcRenderer?.on('goal:session-restored', handleSessionRestored);
-    return () => {
-      window.electron?.ipcRenderer?.removeListener('goal:session-restored', handleSessionRestored);
-    };
+    return window.glintAPI.onSessionRestored(handleSessionRestored);
   }, []);
 
   useEffect(() => {
@@ -209,6 +201,7 @@ export const AssistantView: React.FC = () => {
   const handleSend = async () => {
     if (!inputValue.trim() || analyzing) return;
     
+    const id = ++requestId.current;
     const goal = inputValue.trim();
     setAnalyzing(true);
     setCurrentGoal(goal);
@@ -220,7 +213,8 @@ export const AssistantView: React.FC = () => {
     window.glintAPI?.resetGoalInactivity();
     
     try {
-      const result = await window.glintAPI.executeGoalStep(goal);
+      const result = await window.glintAPI.executeGoalStep({ source: 'text', text: goal });
+      if (id !== requestId.current) return;
       if (result.success && result.text) {
         setResponse(result.text);
         setInputValue(''); // Clear input on success
@@ -228,10 +222,11 @@ export const AssistantView: React.FC = () => {
         setError(result.error || 'Failed to analyze screen');
       }
     } catch (err: any) {
+      if (id !== requestId.current) return;
       console.error('Goal execution failed:', err);
       setError(err?.message || 'A connection error occurred during analysis');
     } finally {
-      setAnalyzing(false);
+      if (id === requestId.current) setAnalyzing(false);
     }
   };
 
@@ -252,6 +247,8 @@ export const AssistantView: React.FC = () => {
   };
 
   const handleStartNew = async () => {
+    requestId.current++;
+    setAnalyzing(false);
     await window.glintAPI?.clearGoalSession();
     setCurrentGoal(null);
     setResponse(null);
@@ -266,8 +263,8 @@ export const AssistantView: React.FC = () => {
       <button 
         className="assistant-action-btn" 
         aria-label="Voice input" 
-        title="Voice Input"
-        disabled={analyzing}
+        title="Voice input is planned"
+        disabled
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
@@ -322,7 +319,7 @@ export const AssistantView: React.FC = () => {
                 <GlintLogo size={24} animated={true} />
                 <span className="assistant-title">Glint</span>
               </div>
-              <p className="assistant-subtitle">How can I guide you today?</p>
+              <p className="assistant-subtitle">Describe a goal to get guidance from Gemini using your screen.</p>
             </>
           )}
           
@@ -353,7 +350,8 @@ export const AssistantView: React.FC = () => {
                     <line x1="12" y1="8" x2="12" y2="12" />
                     <line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
-                  <span>{error}</span>
+                  <span role="alert">{error}</span>
+                  {error.includes('Settings') && <button onClick={() => window.glintAPI.openSettings()}>Open Settings</button>}
                 </div>
               )}
 

@@ -8,7 +8,7 @@ export const FloatingAssistantView: React.FC = () => {
 
   useEffect(() => {
     if (window.glintAPI?.onFloatingUpdate) {
-      window.glintAPI.onFloatingUpdate((data) => {
+      return window.glintAPI.onFloatingUpdate((data) => {
         if (data.step) setStepText(data.step);
         if (data.goal) setGoalText(data.goal);
         setIsAdvancing(false);
@@ -38,8 +38,7 @@ export const FloatingAssistantView: React.FC = () => {
     e.stopPropagation(); // Prevent widget click from firing
     if (isAdvancing) return;
     setIsAdvancing(true);
-    setStepText('Analyzing...');
-    window.glintAPI?.advanceStep();
+    window.glintAPI.advanceStep().catch(() => setStepText('Could not advance. Try again.')).finally(() => setIsAdvancing(false));
   };
 
   const handleClose = (e: React.MouseEvent) => {

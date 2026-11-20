@@ -8,13 +8,6 @@ interface Rectangle {
   height: number;
 }
 
-interface Rectangle {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
 interface HighlightData {
   rect: Rectangle;
   label: string;
@@ -26,23 +19,15 @@ export const OverlayView: React.FC = () => {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
-    // Register IPC listeners exposed by preload bridge
-    if (window.glintAPI?.onOverlayUpdate) {
-      window.glintAPI.onOverlayUpdate((data) => {
-        setHighlight(data);
-        setVisible(true);
-      });
-    }
-
-    if (window.glintAPI?.onOverlayClear) {
-      window.glintAPI.onOverlayClear(() => {
-        setVisible(false);
-        // Clear state after animation fadeout completes
-        setTimeout(() => {
-          setHighlight(null);
-        }, 300);
-      });
-    }
+    const stopUpdates = window.glintAPI.onOverlayUpdate(data => {
+      setHighlight(data);
+      setVisible(true);
+    });
+    const stopClear = window.glintAPI.onOverlayClear(() => {
+      setVisible(false);
+      setHighlight(null);
+    });
+    return () => { stopUpdates(); stopClear(); };
   }, []);
 
   if (!highlight) return null;

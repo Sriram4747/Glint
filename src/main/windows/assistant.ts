@@ -1,4 +1,5 @@
-import { BrowserWindow, shell, screen, app } from 'electron'
+import { registerWindow } from './roles'
+import { BrowserWindow, screen, app } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 
@@ -12,6 +13,7 @@ app.on('before-quit', () => {
 
 export function createAssistantWindow(): void {
   if (assistantWindow && !assistantWindow.isDestroyed()) {
+    if (assistantWindow.isMinimized()) assistantWindow.restore()
     assistantWindow.show()
     assistantWindow.focus()
     // Notify renderer that the window was restored
@@ -41,9 +43,10 @@ export function createAssistantWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   })
+  registerWindow(assistantWindow, 'assistant')
 
   assistantWindow.on('ready-to-show', () => {
     assistantWindow?.show()
@@ -72,11 +75,6 @@ export function createAssistantWindow(): void {
       const [newX, newY] = assistantWindow.getPosition()
       lastPosition = { x: newX, y: newY }
     }
-  })
-
-  assistantWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

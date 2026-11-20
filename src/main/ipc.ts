@@ -6,62 +6,19 @@ import { CaptureService } from './services/capture'
 import { GoalService } from './services/goal'
 import { GuidanceSessionService, GuidanceSessionState } from './services/guidance-session'
 
-import * as os from 'os'
-import { exec } from 'child_process'
+import { roleOf } from './windows/roles'
+import { SettingsStore } from './services/settings'
+import { getSystemInfo } from './services/system-info'
+import { resolveGoalInput } from '../shared/input'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import * as fs from 'fs'
-import * as path from 'path'
-
-const SETTINGS_FILE = path.join(app.getPath('userData'), 'settings.json')
-
-// Helper to load settings from disk
-function loadSettingsFromDisk(): Record<string, any> {
-  try {
-    if (fs.existsSync(SETTINGS_FILE)) {
-      const content = fs.readFileSync(SETTINGS_FILE, 'utf-8')
-      return JSON.parse(content)
-    }
-  } catch (err) {
-    console.error('Failed to load settings from disk:', err)
-  }
-  return {
-    general: {
-      launchAtStartup: false,
-      alwaysOnTop: true,
-      guidanceLevel: 'minimal'
-    },
-    ai: {
-      provider: 'google',
-      apiKey: ''
-    }
-  }
-}
-
-// Helper to save settings to disk
-function saveSettingsToDisk(settings: Record<string, any>): void {
-  try {
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8')
-  } catch (err) {
-    console.error('Failed to save settings to disk:', err)
-  }
-}
-
-// Helper to execute PowerShell commands
-function runPowerShell(command: string): Promise<string> {
-  return new Promise((resolve) => {
-    exec(`powershell -NoProfile -Command "${command}"`, (error, stdout) => {
-      if (error) {
-        resolve('')
-      } else {
-        resolve(stdout.trim())
-      }
-    })
-  })
-}
 
 // Manually load .env file to guarantee process.env availability in Main process
 try {
-  const envPath = path.join(process.cwd(), '.env')
-  if (fs.existsSync(envPath)) {
+  const envPath = join(process.cwd(), '.env')
+  if (!app.isPackaged && fs.existsSync(envPath)) {
     const envContent = fs.readFileSync(envPath, 'utf-8')
     for (const line of envContent.split(/\r?\n/)) {
       const trimmed = line.trim()
@@ -70,7 +27,7 @@ try {
         if (index > 0) {
           const key = trimmed.substring(0, index).trim()
           const val = trimmed.substring(index + 1).trim()
-          process.env[key] = val
+          if (key === 'GEMINI_API_KEY' && !process.env[key]) process.env[key] = val
         }
       }
     }
@@ -79,177 +36,70 @@ try {
   console.error('Failed to parse .env file manually:', err)
 }
 
-// User-specific fallbacks from the screenshot
-const USER_FALLBACK_SYSTEM_INFO = {
-  computerName: 'dell',
-  windowsVersion: 'Windows 11 Home',
-  cpu: 'AMD Ryzen AI 9 HX PRO 370 w/ Radeon 890M (2.00 GHz)',
-  ram: '64.0 GB',
-  gpu: 'NVIDIA RTX PRO 500 Blackwell Generation Laptop GPU (6 GB) / AMD Radeon(TM) 890M Graphics (512 MB)',
-  screenResolution: '2560 × 1600',
-  displayScaling: '150%',
-  appVersion: '1.0.0'
-}
-
-// Helper to shorten CPU names for clean tile rendering
-function shortenCPU(cpu: string): string {
-  let clean = cpu.replace(/\(R\)/g, '').replace(/\(TM\)/g, '').replace(/Processor/g, '').replace(/CPU/g, '').trim()
-  if (clean.includes('Ryzen AI 9')) {
-    return 'Ryzen AI 9 PRO 370'
+function checkSender(event: IpcMainInvokeEvent | IpcMainEvent, roles: string[]): void {
+  const frame = event.senderFrame
+  const location = new URL(frame?.url || 'about:blank')
+  const page = !app.isPackaged && process.env.ELECTRON_RENDERER_URL
+    ? new URL(process.env.ELECTRON_RENDERER_URL)
+    : pathToFileURL(join(__dirname, '../renderer/index.html'))
+  const role = location.searchParams.get('window') || ''
+  location.search = ''
+  location.hash = ''
+  if (!frame || frame !== event.sender.mainFrame || location.href !== page.href || roleOf(event.sender) !== role || !roles.includes(role)) {
+    throw new Error('This window cannot perform that operation.')
   }
-  // Extract patterns like "Core i7-13700K" or "Ryzen 7 5800X"
-  const match = clean.match(/(Ryzen \d+|Core i\d+-\w+|Ryzen AI \d+ \w+|Core i\d+)/i)
-  return match ? match[0] : clean.split('@')[0].trim()
-}
-
-// Helper to shorten GPU names
-function shortenGPU(gpu: string): string {
-  // If multiple GPUs are joined, select the discrete one or the first one
-  if (gpu.includes(' / ')) {
-    const parts = gpu.split(' / ')
-    const discrete = parts.find(p => p.toLowerCase().includes('nvidia') || p.toLowerCase().includes('amd'))
-    return shortenGPU(discrete || parts[0])
-  }
-  let clean = gpu.replace(/\(R\)/g, '').replace(/\(TM\)/g, '').trim()
-  if (clean.includes('RTX PRO 500')) {
-    return 'NVIDIA RTX PRO 500'
-  }
-  if (clean.includes('GeForce RTX')) {
-    const match = clean.match(/RTX \d+(\s*Ti)?/i)
-    return match ? `NVIDIA ${match[0]}` : clean
-  }
-  return clean
 }
 
 export function registerIPC(): void {
-  // Window control
-  ipcMain.on('window:close', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    win?.close()
-  })
+  const settings = new SettingsStore()
+  const assistant = ['assistant']
+  const controls = ['assistant', 'floating-assistant']
+  const windows = [...controls, 'settings', 'system-details']
+  function handle(channel: string, roles: string[], fn: (...args: any[]) => unknown) {
+    ipcMain.handle(channel, (event, ...args) => {
+      checkSender(event, roles)
+      return fn(...args)
+    })
+  }
+  function on(channel: string, roles: string[], fn: (event: Electron.IpcMainEvent) => void) {
+    ipcMain.on(channel, event => {
+      try { checkSender(event, roles) } catch { return }
+      fn(event)
+    })
+  }
 
-  ipcMain.on('window:minimize', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    win?.minimize()
-  })
+  on('window:close', windows, event => BrowserWindow.fromWebContents(event.sender)?.close())
+  on('window:minimize', windows, event => BrowserWindow.fromWebContents(event.sender)?.minimize())
+  handle('system:get-info', ['system-details', 'assistant'], getSystemInfo)
+  handle('settings:get', ['settings'], () => settings.view())
+  handle('settings:save', ['settings'], (patch: unknown) => settings.update(patch))
+  handle('screen:capture', assistant, () => CaptureService.capture())
 
-  // System info (placeholder)
-  ipcMain.handle('system:get-info', async () => {
+  handle('goal:execute', assistant, async (input: unknown) => {
     try {
-      const { screen } = require('electron')
-      
-      // 1. Resolve Host / Computer Name
-      const computerName = os.hostname() || USER_FALLBACK_SYSTEM_INFO.computerName
-
-      // 2. Resolve CPU model
-      let cpu = USER_FALLBACK_SYSTEM_INFO.cpu
-      if (os.cpus()[0]?.model) {
-        cpu = shortenCPU(os.cpus()[0].model)
-      } else {
-        cpu = shortenCPU(cpu)
+      const { goal } = resolveGoalInput(input)
+      const { key, visual, model } = settings.guidance()
+      if (!key) return { success: false, error: 'Add a Gemini API key in Settings to start guidance.' }
+      if (visual) {
+        GoalService.clearSession()
+        await GuidanceSessionService.start(goal, key, model)
+        return { success: true, text: 'Visual guidance is ready.' }
       }
-
-      // 3. Resolve RAM
-      const totalMemGb = Math.round(os.totalmem() / (1024 * 1024 * 1024))
-      const ram = totalMemGb > 0 ? `${totalMemGb}.0 GB` : USER_FALLBACK_SYSTEM_INFO.ram
-
-      // 4. Resolve OS Version
-      let windowsVersion = USER_FALLBACK_SYSTEM_INFO.windowsVersion
-      const osCaption = await runPowerShell('(Get-CimInstance Win32_OperatingSystem).Caption')
-      if (osCaption) {
-        windowsVersion = osCaption.replace('Microsoft ', '').trim()
-      }
-
-      // 5. Resolve GPU
-      let gpu = USER_FALLBACK_SYSTEM_INFO.gpu
-      const gpuNames = await runPowerShell('Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name')
-      if (gpuNames) {
-        gpu = shortenGPU(gpuNames)
-      } else {
-        gpu = shortenGPU(gpu)
-      }
-
-      // 6. Resolve Resolution and Scaling Factor
-      let screenResolution = USER_FALLBACK_SYSTEM_INFO.screenResolution
-      let displayScaling = USER_FALLBACK_SYSTEM_INFO.displayScaling
-
-      try {
-        const primaryDisplay = screen.getPrimaryDisplay()
-        if (primaryDisplay) {
-          const { width, height } = primaryDisplay.bounds
-          screenResolution = `${width} × ${height}`
-          displayScaling = `${Math.round(primaryDisplay.scaleFactor * 100)}%`
-        }
-      } catch (err) {
-        console.error('Error fetching screen info:', err)
-      }
-
-      return {
-        computerName,
-        windowsVersion,
-        cpu,
-        ram,
-        gpu,
-        screenResolution,
-        displayScaling,
-        appVersion: '1.0.0'
-      }
+      if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) GuidanceSessionService.cancel()
+      const result = await GoalService.executeGoalStep(goal, key, model)
+      return { ...result, text: result.data?.nextStep }
     } catch (error) {
-      console.error('Error getting dynamic system info:', error)
-      return {
-        ...USER_FALLBACK_SYSTEM_INFO,
-        cpu: shortenCPU(USER_FALLBACK_SYSTEM_INFO.cpu),
-        gpu: shortenGPU(USER_FALLBACK_SYSTEM_INFO.gpu)
-      }
+      return { success: false, error: error instanceof Error ? error.message : 'Guidance failed.' }
     }
   })
-
-  // Load settings from disk on boot
-  let settingsStore: Record<string, any> = loadSettingsFromDisk()
-
-  ipcMain.handle('settings:get', async () => {
-    return settingsStore
-  })
-
-  ipcMain.handle('settings:save', async (_event, settings: Record<string, unknown>) => {
-    settingsStore = { ...settingsStore, ...settings }
-    saveSettingsToDisk(settingsStore)
-  })
-
-  // Screen capture
-  ipcMain.handle('screen:capture', async () => {
-    return CaptureService.capture()
-  })
-
-  // Goal orchestration
-  ipcMain.handle('goal:execute', async (_event, goal: string) => {
-    const settingsAi: any = settingsStore.ai || {}
-    const apiKey = settingsAi.apiKey || process.env.GEMINI_API_KEY || ''
-    const preferredModel = settingsAi.model || 'gemini-3.1-flash-lite'
-    
-    const settingsGeneral: any = settingsStore.general || {}
-    const guidanceLevel = settingsGeneral.guidanceLevel || 'minimal'
-
-    if (guidanceLevel === 'standard') {
-      // Runs the full visual overlay + auto-verification guidance session
-      await GuidanceSessionService.start(goal, apiKey, preferredModel)
-      return {
-        success: true,
-        text: 'Starting interactive visual guidance session...'
-      }
-    }
-
-    return GoalService.executeGoalStep(goal, apiKey, preferredModel)
-  })
-
-  ipcMain.handle('goal:clear', async () => {
+  handle('goal:clear', controls, async () => {
     if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) {
       GuidanceSessionService.cancel()
     }
     GoalService.clearSession()
   })
 
-  ipcMain.handle('goal:get-session', async () => {
+  handle('goal:get-session', controls, async () => {
     if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) {
       const data = GuidanceSessionService.getSessionData()
       return {
@@ -262,51 +112,52 @@ export function registerIPC(): void {
     return GoalService.getSession()
   })
 
-  ipcMain.handle('goal:mark-complete', async () => {
+  handle('goal:mark-complete', controls, async () => {
     if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) {
       GuidanceSessionService.complete()
+      return
     }
     GoalService.markCompleted()
   })
 
-  ipcMain.handle('goal:resume', async () => {
+  handle('goal:resume', controls, async () => {
     if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) {
-      GuidanceSessionService.resume()
+      return GuidanceSessionService.resume()
     }
     GoalService.resumeFromIdle()
   })
 
-  ipcMain.handle('goal:snooze', async () => {
+  handle('goal:snooze', controls, async () => {
     if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) {
-      GuidanceSessionService.pause()
+      return GuidanceSessionService.pause()
     }
     GoalService.snoozeGoal()
   })
 
-  ipcMain.handle('goal:advance-step', async () => {
+  handle('goal:advance-step', controls, async () => {
     if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) {
       await GuidanceSessionService.advanceStep()
     }
   })
 
-  ipcMain.handle('goal:get-history', async () => {
+  handle('goal:get-history', controls, async () => {
     return GoalService.getHistory()
   })
 
-  ipcMain.on('goal:reset-inactivity', () => {
+  on('goal:reset-inactivity', windows, () => {
     GoalService.resetInactivityTimer()
   })
 
   // Window navigation
-  ipcMain.on('window:open-settings', () => {
+  on('window:open-settings', windows, () => {
     createSettingsWindow()
   })
 
-  ipcMain.on('window:open-system-details', () => {
+  on('window:open-system-details', windows, () => {
     createSystemDetailsWindow()
   })
 
-  ipcMain.on('window:open-assistant', () => {
+  on('window:open-assistant', windows, () => {
     createAssistantWindow()
   })
 }

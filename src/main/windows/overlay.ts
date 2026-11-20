@@ -1,3 +1,4 @@
+import { registerWindow } from './roles'
 import { BrowserWindow, screen } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
@@ -9,20 +10,7 @@ export function createOverlayWindow(): BrowserWindow {
     return overlayWindow
   }
 
-  // Compute bounding rectangle spanning ALL displays (multi-monitor support)
-  const allDisplays = screen.getAllDisplays()
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-  for (const display of allDisplays) {
-    const b = display.bounds
-    if (b.x < minX) minX = b.x
-    if (b.y < minY) minY = b.y
-    if (b.x + b.width > maxX) maxX = b.x + b.width
-    if (b.y + b.height > maxY) maxY = b.y + b.height
-  }
-  const x = minX
-  const y = minY
-  const width = maxX - minX
-  const height = maxY - minY
+  const { x, y, width, height } = screen.getPrimaryDisplay().bounds
 
   overlayWindow = new BrowserWindow({
     x,
@@ -30,6 +18,7 @@ export function createOverlayWindow(): BrowserWindow {
     width,
     height,
     frame: false,
+    focusable: false,
     transparent: true,
     resizable: false,
     skipTaskbar: true,
@@ -41,9 +30,10 @@ export function createOverlayWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   })
+  registerWindow(overlayWindow, 'overlay')
 
   // Ensure overlay window sits at the absolute top of the window manager stack
   overlayWindow.setAlwaysOnTop(true, 'screen-saver')
@@ -51,10 +41,6 @@ export function createOverlayWindow(): BrowserWindow {
 
   overlayWindow.on('closed', () => {
     overlayWindow = null
-  })
-
-  overlayWindow.on('ready-to-show', () => {
-    overlayWindow?.showInactive()
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

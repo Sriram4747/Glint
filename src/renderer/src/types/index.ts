@@ -21,15 +21,10 @@ export interface Settings {
     theme: 'light' | 'dark' | 'system'
     accentColor: string
   }
-  voice: {
-    enabled: boolean
-  }
-  hotkeys: {
-    activationShortcut: string
-  }
   ai: {
     provider: 'openai' | 'anthropic' | 'google' | 'local'
-    apiKey: string
+    model?: string
+    hasApiKey: boolean
   }
 }
 
@@ -49,25 +44,8 @@ export const DEFAULT_SETTINGS: Settings = {
     theme: 'dark',
     accentColor: '#0078D4'
   },
-  voice: {
-    enabled: false
-  },
-  hotkeys: {
-    activationShortcut: 'Ctrl+Shift+G'
-  },
   ai: {
-    provider: 'openai',
-    apiKey: ''
+    provider: 'google',
+    hasApiKey: false
   }
-}
-
-export const PLACEHOLDER_SYSTEM_INFO: SystemInfo = {
-  computerName: 'DESKTOP-GLINT',
-  windowsVersion: 'Windows 11 Pro 23H2',
-  cpu: 'Intel Core i7-13700K',
-  ram: '32 GB DDR5',
-  gpu: 'NVIDIA GeForce RTX 4070',
-  screenResolution: '2560 × 1440',
-  displayScaling: '125%',
-  appVersion: '1.0.0'
 }
