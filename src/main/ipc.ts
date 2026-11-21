@@ -9,9 +9,9 @@ import { GuidanceSessionService, GuidanceSessionState } from './services/guidanc
 import { roleOf } from './windows/roles'
 import { SettingsStore } from './services/settings'
 import { getSystemInfo } from './services/system-info'
-import { settingsDestinations } from './services/settings-destinations'
-import { routeSettingsIntent } from './services/settings-intent'
-import { SettingsNavigationService } from './services/settings-navigation'
+import { NativeActions } from './services/native-action'
+import { settingsAdapter } from './services/settings-adapter'
+import { explorerAdapter } from './services/explorer-adapter'
 import { cancelVoice, prepareVoice, transcribeVoice } from './services/voice'
 import { resolveGoalInput } from '../shared/input'
 import { join } from 'node:path'
@@ -56,7 +56,7 @@ function checkSender(event: IpcMainInvokeEvent | IpcMainEvent, roles: string[]):
 
 export function registerIPC(): void {
   const settings = new SettingsStore()
-  const settingsNavigation = new SettingsNavigationService()
+  const nativeActions = new NativeActions([settingsAdapter, explorerAdapter])
   const assistant = ['assistant']
   const controls = ['assistant', 'floating-assistant']
   const windows = [...controls, 'settings', 'system-details']
@@ -99,16 +99,11 @@ export function registerIPC(): void {
   handle('goal:execute', assistant, async (input: unknown) => {
     try {
       const { goal } = resolveGoalInput(input)
-      const intent = routeSettingsIntent(goal)
-      if (intent.kind === 'clarify') {
-        const choices = intent.choices.map(destination => settingsDestinations[destination].label)
-        const options = choices.length > 1 ? ` ${choices.join(' or ')}?` : ''
-        const example = choices[0] || 'Wi-Fi'
-        return { success: true, text: `Which Windows Settings page should I open?${options} Try “Open ${example} settings.”` }
-      }
-      if (intent.kind === 'open' && process.platform === 'win32') {
+      const intent = nativeActions.resolve(goal)
+      if (intent?.kind === 'reply') return { success: true, text: intent.text }
+      if (intent?.kind === 'open' && process.platform === 'win32') {
         clearGuidance()
-        return await settingsNavigation.open(intent.destination)
+        return await nativeActions.execute(intent.action)
       }
       const { key, visual, model } = settings.guidance()
       if (!key) return { success: false, error: 'Add a Gemini API key in Settings to start guidance.' }

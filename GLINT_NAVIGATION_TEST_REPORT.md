@@ -2,6 +2,52 @@
 
 **November 21, 2026 · Windows 11 26H2 · build 26300.9974**
 
+## File Explorer extension
+
+The shared suite passed **256 automated cases** across both adapters. Explorer additions covered English and Tamil requests, final transcripts, redirected local folders, duplicate requests, launch errors and unverified dispatch, ambiguity, missing folders, unsafe path forms, and file operations. Requests such as `Show me the latest PDF in Downloads` and `நான் download பண்ண file-ஐ காட்டு` received a local folder-browsing reply. Those requests made no launch, screen capture or model call.
+
+`npm run typecheck`, `npm run build`, and `npm run test:desktop` passed on the extended build. The five Settings demo requests each dispatched the original URI. Bluetooth, Display, Sound and Windows Update headings were observed again on the desktop. Desktop interaction interrupted the new Wi-Fi heading check. The original milestone below records the verified Wi-Fi heading for that same URI.
+
+| Live Glint request | Windows Shell result |
+| --- | --- |
+| `Open File Explorer.` | This PC |
+| `Where are my downloaded files?` | Downloads |
+| `Show me my Documents.` | Documents |
+| `படங்கள் கோப்புறையைத் திறக்கவும்.` | Pictures |
+| `Show me the latest PDF in Downloads.` | Local reply. Zero Explorer and model calls. |
+
+Glint submitted each request through the built goal editor and Send control. The verifier compared the resolved folder identity with a live Explorer view. The title check used window names without reading folder contents. The Shell helper returns a status token, and unverified dispatch has separate user-facing wording.
+
+### Explorer voice tests
+
+Both runs played synthesized speech through speakers into the actual default microphone and used local Whisper. Windows Speech generated the English clip. A speech service synthesized the generic Tamil test sentence. Only that generic sentence was sent to the service. Glint’s recording, transcription, navigation and verification stayed local.
+
+| Language | Reviewed command | Observed location |
+| --- | --- | --- |
+| English | Whisper returned `Open my downloads.`. The transcript was sent as recognized. | Downloads |
+| Tamil | Recognition varied across the synthesized clips. The presenter path corrected the transcript to `படங்கள் கோப்புறையைத் திறக்கவும்.` before sending. | Pictures |
+
+Both passing runs verified microphone-track cleanup, cancellation and zero launches before Send. Each produced one verified Explorer launch and zero Gemini calls. The Tamil command needed an edit in the tested recordings. Human speech was outside these fixture runs.
+
+### Reproduce the Explorer checks
+
+Build Glint and use the relevant scenario. Supply short PCM WAV clips for the physical microphone tests.
+
+```powershell
+npm run test:navigation -- --live explorer
+npm run test:navigation -- --live downloads
+npm run test:navigation -- --live documents
+npm run test:navigation -- --live pictures
+npm run test:navigation -- --live latest-pdf
+
+node tests/desktop/voice.cjs en C:\path\to\open-downloads.wav --physical --explorer
+node tests/desktop/voice.cjs ta C:\path\to\open-pictures.wav --physical --explorer --review
+```
+
+## Windows Settings milestone
+
+The sections below record the original Windows Settings verification. The adapter extension retains the same catalog and five demo destinations.
+
 ## Automated regression
 
 | Suite | Executed | Passed | Failed |

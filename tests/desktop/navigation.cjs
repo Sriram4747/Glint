@@ -1,15 +1,16 @@
 const assert = require('node:assert/strict')
-const { mkdtempSync } = require('node:fs')
+const { mkdirSync, mkdtempSync, writeFileSync } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
-const { spawnSync } = require('node:child_process')
+const childProcess = require('node:child_process')
+const { promisify } = require('node:util')
 
 if (!process.versions.electron) {
   const args = process.argv.slice(2)
   const profile = mkdtempSync(join(tmpdir(), 'glint-navigation-test-'))
   const env = { ...process.env }
   for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'GEMINI_API_KEY']) delete env[key]
-  const test = spawnSync(require('electron'), [__filename, profile, ...args], {
+  const test = childProcess.spawnSync(require('electron'), [__filename, profile, ...args], {
     cwd: profile, env, timeout: 60000, stdio: 'inherit', windowsHide: true
   })
   if (test.error) throw test.error
@@ -57,15 +58,46 @@ function tray(label) {
 }
 
 let requested = []
+let explorerRequests = []
+let explorerChecks = []
 let failLaunch = false
 let blockLaunch = false
 let releaseLaunch
+let explorerStatus = 'verified'
+const knownFolders = {
+  downloads: join(profile, 'Redirected Downloads'),
+  documents: join(profile, 'Documents'),
+  pictures: join(profile, 'Pictures')
+}
+const getPath = app.getPath.bind(app)
+if (!live) {
+  for (const folder of Object.values(knownFolders)) mkdirSync(folder)
+  app.getPath = name => Object.hasOwn(knownFolders, name) ? knownFolders[name] : getPath(name)
+}
+
+const execFile = childProcess.execFile
+const executeFile = promisify(execFile)
+childProcess.execFile = Object.assign((...args) => execFile(...args), {
+  [promisify.custom]: async (file, args, options) => {
+    if (!args.at(-1)?.endsWith('verify-explorer.ps1')) return executeFile(file, args, options)
+    explorerChecks.push(options.env.GLINT_EXPLORER_FOLDER)
+    if (live) return executeFile(file, args, options)
+    return { stdout: explorerStatus, stderr: '' }
+  }
+})
 const openExternal = shell.openExternal.bind(shell)
 shell.openExternal = async uri => {
-  requested.push(uri)
+  if (uri === 'shell:MyComputerFolder') explorerRequests.push('')
+  else requested.push(uri)
   if (live) return openExternal(uri)
   if (failLaunch) throw new Error('Windows launcher fixture rejected this request')
   if (blockLaunch) await new Promise(resolve => { releaseLaunch = resolve })
+}
+const openPath = shell.openPath.bind(shell)
+shell.openPath = async folder => {
+  explorerRequests.push(folder)
+  if (live) return openPath(folder)
+  return failLaunch ? 'Explorer fixture declined the launch' : ''
 }
 let captures = 0
 let modelRequests = 0
@@ -99,7 +131,12 @@ const liveCases = new Map([
   ['update', { text: 'Open Windows Update.', uri: 'windowsupdate' }],
   ['repeat', { text: 'Open Windows Update.', uri: 'windowsupdate', repeat: true }],
   ['ambiguous', { text: 'Open Wi-Fi or Bluetooth settings.', response: 'Which Windows Settings page' }],
-  ['unsupported', { text: "Don't open Wi-Fi settings.", response: 'Gemini API key', error: true }]
+  ['unsupported', { text: "Don't open Wi-Fi settings.", response: 'Gemini API key', error: true }],
+  ['explorer', { text: 'Open File Explorer.', folder: '', response: 'This PC is open in File Explorer' }],
+  ['downloads', { text: 'Where are my downloaded files?', folder: 'downloads', response: 'Downloads is open in File Explorer' }],
+  ['documents', { text: 'Show me my Documents.', folder: 'documents', response: 'Documents is open in File Explorer' }],
+  ['pictures', { text: 'படங்கள் கோப்புறையைத் திறக்கவும்.', folder: 'pictures', response: 'Pictures is open in File Explorer' }],
+  ['latest-pdf', { text: 'Show me the latest PDF in Downloads.', response: 'for you to browse in File Explorer' }]
 ])
 
 async function runLive(assistant) {
@@ -109,18 +146,26 @@ async function runLive(assistant) {
   await enterDraft(assistant, check.text)
   assert.equal(await run(assistant, 'document.querySelector("input").value'), check.text)
   assert.deepEqual(requested, [])
+  assert.deepEqual(explorerRequests, [])
   await run(assistant, 'document.querySelector(".send-btn").click()')
   const response = check.response || 'Asked Windows'
-  const selector = check.error ? '.analysis-error' : '.response-text'
-  await until(() => run(assistant, `document.querySelector('${selector}')?.textContent.includes(${JSON.stringify(response)})`), 'live Glint response')
+  const observed = await until(() => run(assistant, `document.querySelector('.analysis-error, .response-text')?.textContent`), 'live Glint response')
+  assert.ok(observed.includes(response), `Expected ${response}; got ${observed}`)
+  if (check.error) assert.ok(await run(assistant, '!!document.querySelector(".analysis-error")'))
   if (check.repeat) {
     const repeated = await run(assistant, `glintAPI.executeGoalStep(${JSON.stringify(check.text)})`)
     assert.match(repeated.text, /already sent/)
   }
   assert.deepEqual(requested, check.uri ? [`ms-settings:${check.uri}`] : [])
+  const expectedFolder = check.folder ? getPath(check.folder) : check.folder
+  assert.ok(check.folder === undefined ? explorerRequests.length === 0 :
+    explorerRequests.length === 1 && explorerRequests[0] === expectedFolder, 'Unexpected Explorer dispatch')
+  assert.ok(check.folder === undefined ? explorerChecks.length === 0 :
+    explorerChecks.length === 1 && explorerChecks[0] === expectedFolder, 'Unexpected Explorer verification')
   assert.equal(captures, 0)
   assert.equal(modelRequests, 0)
-  console.log(`PASS live ${scenario} / ${check.uri ? `dispatched ms-settings:${check.uri}; inspect the Windows Settings heading` : 'no OS launch'}`)
+  const outcome = check.uri ? `dispatched ms-settings:${check.uri}; inspect the Windows Settings heading` : response
+  console.log(`PASS live ${scenario} / ${outcome}`)
 }
 
 require('../../out/main/index.js')
@@ -138,6 +183,8 @@ app.whenReady().then(async () => {
   let passed = 0
   async function test(name, verify) {
     requested = []
+    explorerRequests = []
+    explorerChecks = []
     try {
       await verify()
       assert.equal(captures, 0)
@@ -205,7 +252,7 @@ app.whenReady().then(async () => {
   for (const text of [
     "Don't open Wi-Fi settings.", 'Explain what Bluetooth is.', 'Can you show me how Wi-Fi works?',
     'Show me how to open Bluetooth settings.', 'Turn off Wi-Fi.', 'Pair my Bluetooth headphones.',
-    'Open Wi-Fi settings and turn it off.', 'Open Wi-Fi settings; start calc.exe',
+    'Open Wi-Fi settings and turn it off.',
     'Open Wi-Fi settings && ms-settings:windowsupdate', 'Open ms-settings:display',
     'Open Wi-Fi settings\nOpen Sound settings', 'Open https://example.invalid',
     'Open Advanced display settings.', 'வைஃபை அமைப்புகளைத் திறக்க வேண்டாம்.',
@@ -271,7 +318,102 @@ app.whenReady().then(async () => {
     await until(() => run(assistant, 'document.querySelector(".response-text")?.textContent.includes("Asked Windows to open Display")'), 'visible launch response')
     assert.deepEqual(requested, ['ms-settings:display'])
   })
-  console.log(`PASS ${passed} navigation cases across ${pages.length} destinations (Electron, Windows launch fixture).`)
+
+  for (const [text, folder, language] of [
+    ['Open File Explorer.', ''],
+    ['Open my Downloads folder.', 'downloads'],
+    ['Show me my Documents.', 'documents'],
+    ['Open the Pictures folder.', 'pictures'],
+    ['Where are my downloaded files?', 'downloads'],
+    ['ஆவணங்கள் கோப்புறையை திறக்கவும்.', 'documents', 'ta'],
+    ['Open the Pictures directory.', 'pictures', 'en'],
+    ['Downloads folder எங்கே இருக்கு?', 'downloads'],
+    ['என் ஆவணங்கள் கோப்புறையைத் திறக்கவும்.', 'documents'],
+    ['படங்கள் கோப்புறையைத் திறக்கவும்.', 'pictures', 'ta'],
+    ['Downloads folder எங்கே இருக்கு?', 'downloads', 'ta']
+  ]) {
+    await test(`Explorer / ${text} / ${language ?? 'typed'}`, async () => {
+      const result = await submit(text, language)
+      assert.equal(result.success, true, result.error)
+      assert.match(result.text, /is open in File Explorer\.$/)
+      assert.deepEqual(explorerRequests, [folder ? knownFolders[folder] : ''])
+      assert.deepEqual(explorerChecks, explorerRequests)
+      assert.deepEqual(requested, [])
+    })
+  }
+  await test('Explorer / immediate repeat', async () => {
+    assert.match((await submit('Open Downloads.')).text, /already sent/)
+    assert.deepEqual(explorerRequests, [])
+  })
+  await test('Explorer / explicit launch error and retry', async () => {
+    failLaunch = true
+    try {
+      const result = await submit('Open Documents.')
+      assert.equal(result.success, false)
+      assert.match(result.error, /Windows could not open Documents/)
+    } finally {
+      failLaunch = false
+    }
+    assert.match((await submit('Open Documents.')).text, /^Documents is open/)
+    assert.deepEqual(explorerRequests, [knownFolders.documents, knownFolders.documents])
+    assert.deepEqual(explorerChecks, [knownFolders.documents])
+  })
+  await test('Explorer / unverified request', async () => {
+    explorerStatus = 'requested'
+    try {
+      const result = await submit('Open Pictures.')
+      assert.match(result.text, /^Asked Windows to open Pictures/)
+      assert.deepEqual(explorerRequests, [knownFolders.pictures])
+    } finally {
+      explorerStatus = 'verified'
+    }
+  })
+  await test('Explorer / UNC, relative and drive root redirections are outside the demo scope', async () => {
+    const local = knownFolders.downloads
+    try {
+      for (const path of ['\\\\server\\share', 'relative\\Downloads', 'D:\\']) {
+        knownFolders.downloads = path
+        assert.equal((await submit('Open Downloads.')).success, false)
+      }
+    } finally {
+      knownFolders.downloads = local
+    }
+    assert.deepEqual(explorerRequests, [])
+  })
+  await test('Explorer / missing directory and file masquerading as a known folder', async () => {
+    const local = knownFolders.downloads
+    const invalidFile = join(profile, 'fixture.exe')
+    writeFileSync(invalidFile, 'test fixture only')
+    try {
+      for (const path of [join(profile, 'absent directory'), invalidFile]) {
+        knownFolders.downloads = path
+        assert.match((await submit('Open Downloads.')).error, /Windows could not open Downloads/)
+      }
+    } finally {
+      knownFolders.downloads = local
+    }
+    assert.deepEqual(explorerRequests, [])
+    assert.deepEqual(explorerChecks, [])
+  })
+  await test('Explorer / ambiguous folder choice', async () => {
+    assert.match((await submit('Open Downloads or my Documents.')).text, /Which folder should I open/)
+    assert.deepEqual(explorerRequests, [])
+  })
+  for (const text of [
+    'Show me the latest PDF in Downloads.', 'நான் download பண்ண file-ஐ காட்டு.',
+    "Don't open Downloads.", 'Delete a file in Downloads.', 'Rename my Documents folder.',
+    'Move Downloads to Pictures.', 'Overwrite a file.', 'Run the installer in Downloads.',
+    'Open ../Documents.', 'Open C:\\Windows\\System32.', 'Open file:///C:/example/private.txt',
+    'Open \\\\server\\share', 'Open Downloads & calc.exe', 'Open Wi-Fi settings; start calc.exe',
+    'Open invoice.pdf', 'Open my .env file', 'Show me ~/.ssh', 'Open budget.json', 'Open the secrets directory'
+  ]) {
+    await test(`Explorer / keep local without launching / ${text}`, async () => {
+      assert.match((await submit(text)).text, /for you to browse in File Explorer/)
+      assert.deepEqual(explorerRequests, [])
+      assert.deepEqual(requested, [])
+    })
+  }
+  console.log(`PASS ${passed} navigation cases for Windows Settings (${pages.length} pages) and File Explorer (launch fixtures).`)
   app.quit()
 }).catch(error => {
   console.error(error)

@@ -345,7 +345,7 @@ export const AssistantView: React.FC = () => {
                 <GlintLogo size={24} animated={true} />
                 <span className="assistant-title">Glint</span>
               </div>
-              <p className="assistant-subtitle">Ask to open Windows Settings or get step-by-step guidance.</p>
+              <p className="assistant-subtitle">Open Windows Settings or a folder, or get step-by-step guidance.</p>
             </>
           )}
           

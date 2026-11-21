@@ -1,6 +1,7 @@
 // Run with Node and supply a short PCM WAV sample in the selected language.
 // Chromium uses the file as its microphone unless --physical plays it through the speakers.
 // --navigation exercises a real Windows launch from the reviewed transcript.
+// --explorer expects a Downloads command in English or a Pictures command in Tamil.
 const assert = require('node:assert/strict')
 const { mkdtempSync, existsSync } = require('node:fs')
 const { tmpdir } = require('node:os')
@@ -10,7 +11,7 @@ const { execFile, spawnSync } = require('node:child_process')
 if (!process.versions.electron) {
   const [language, file, ...flags] = process.argv.slice(2)
   assert.ok(['en', 'ta'].includes(language) && file && existsSync(file),
-    'Usage: node tests/desktop/voice.cjs en|ta <PCM WAV file> [--physical] [--navigation]')
+    'Usage: node tests/desktop/voice.cjs en|ta <PCM WAV file> [--physical] [--navigation|--explorer [--review]]')
   const profile = mkdtempSync(join(tmpdir(), 'glint-voice-test-'))
   const env = { ...process.env }
   for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'GEMINI_API_KEY']) delete env[key]
@@ -24,7 +25,8 @@ if (!process.versions.electron) {
 const { app, BrowserWindow, Tray, desktopCapturer, nativeImage, screen, shell } = require('electron')
 const [profile, language, file, ...flags] = process.argv.slice(2)
 const physical = flags.includes('--physical')
-const navigation = flags.includes('--navigation')
+const explorer = flags.includes('--explorer')
+const navigation = explorer || flags.includes('--navigation')
 const audioSource = physical ? 'physical microphone via speaker playback' : 'file-backed microphone'
 app.setPath('userData', profile)
 app.disableHardwareAcceleration()
@@ -61,6 +63,13 @@ const findWindow = role => until(() => BrowserWindow.getAllWindows().find(win =>
 // Send neither private screenshots nor real credentials to Gemini during this test.
 const requests = []
 const launches = []
+if (explorer) {
+  const openPath = shell.openPath.bind(shell)
+  shell.openPath = async folder => {
+    launches.push('File Explorer')
+    return openPath(folder)
+  }
+}
 if (navigation) {
   const openExternal = shell.openExternal.bind(shell)
   shell.openExternal = async uri => {
@@ -153,10 +162,29 @@ app.whenReady().then(async () => {
     return message.startsWith('Review and edit')
   }, 'final transcript', 65000)
   const transcript = await run('document.querySelector("input").value')
-  assert.match(transcript, language === 'en' ? /bluetooth/i : /[\u0b80-\u0bff]/u)
+  assert.match(transcript, language === 'en' ? (explorer ? /downloads/i : /bluetooth/i) : /[\u0b80-\u0bff]/u)
   assert.equal(requests.length, 0)
   assert.deepEqual(launches, [])
   assert.ok(await run('!!document.querySelector(".send-btn:not(:disabled)")'))
+
+  if (explorer) {
+    const target = language === 'en' ? 'Downloads' : 'Pictures'
+    if (flags.includes('--review')) {
+      await run('document.querySelector("input").select()')
+      await assistant.webContents.insertText(language === 'en' ? 'Open my Downloads folder.' : 'படங்கள் கோப்புறையைத் திறக்கவும்.')
+    }
+    const submitted = await run('document.querySelector("input").value')
+    await run('document.querySelector(".send-btn").click(); document.querySelector(".send-btn").click()')
+    await until(() => run(`document.querySelector('.response-text')?.textContent.includes('${target} is open in File Explorer')`),
+      `verified Explorer location after submitting ${JSON.stringify(submitted)}`)
+    assert.deepEqual(launches, ['File Explorer'])
+    assert.equal(requests.length, 0)
+    console.log(`PASS ${language} ${audioSource} / verified ${target} in File Explorer`)
+    console.log(`Recognized: ${transcript} | Submitted: ${submitted}`)
+    console.log('PASS cancellation, track cleanup, no launch before Send, one verified launch, zero Gemini calls')
+    app.quit()
+    return
+  }
 
   if (navigation) {
     const english = language === 'en'
