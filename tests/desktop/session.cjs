@@ -132,7 +132,7 @@ app.whenReady().then(async () => {
     for (const tab of ['General', 'Appearance', 'Voice', 'Hotkeys', 'AI', 'About']) {
       await run(settings, 'Array.from(document.querySelectorAll("nav button")).find(b => b.innerText.trim() === ' + JSON.stringify(tab) + ').click()')
       if (tab === 'Appearance') await run(settings, `document.querySelector('[aria-label="Select green accent color"]').click()`)
-      if (tab === 'Voice') assert.equal(await run(settings, 'document.querySelector("input").disabled'), true)
+      if (tab === 'Voice') assert.match(await run(settings, 'document.body.innerText'), /Local dictation/)
       if (tab === 'Hotkeys') assert.ok((await run(settings, 'document.body.innerText')).includes('Space'))
     }
     settings.minimize()

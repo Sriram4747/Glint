@@ -23,7 +23,7 @@ export function createAssistantWindow(): void {
 
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
   const width = 500
-  const height = 260
+  const height = 305
 
   const x = lastPosition ? lastPosition.x : Math.round((screenWidth - width) / 2)
   const y = lastPosition ? lastPosition.y : Math.round((screenHeight - height) / 2)
@@ -62,6 +62,10 @@ export function createAssistantWindow(): void {
 
   assistantWindow.on('closed', () => {
     assistantWindow = null
+  })
+
+  assistantWindow.on('hide', () => {
+    assistantWindow?.webContents.send('window:hidden')
   })
 
   assistantWindow.on('blur', () => {

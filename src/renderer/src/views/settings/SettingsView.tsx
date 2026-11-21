@@ -185,13 +185,9 @@ export const SettingsView: React.FC = () => {
             <div className="settings-card">
               <div className="settings-row">
                 <div className="settings-label-group">
-                  <span className="settings-label">Enable Voice Assistant</span>
-                  <span className="settings-desc">Voice input is planned. Use the assistant text box for guidance.</span>
+                  <span className="settings-label">Local dictation</span>
+                  <span className="settings-desc">Choose English or Tamil in the assistant, then use its microphone. Recordings are transcribed on this computer.</span>
                 </div>
-                <Toggle disabled
-                  checked={false}
-                  onChange={() => {}}
-                />
               </div>
             </div>
           </div>

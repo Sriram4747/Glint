@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { GoalInput } from '../shared/input'
+import type { TranscriptionResult, VoiceLanguage, VoiceResult } from '../shared/voice'
 
 function subscribe<T>(channel: string, callback: (data: T) => void): () => void {
   const listener = (_event: Electron.IpcRendererEvent, data: T) => callback(data)
@@ -9,7 +10,12 @@ function subscribe<T>(channel: string, callback: (data: T) => void): () => void 
 
 const glintAPI = {
   onWindowShown: (callback: () => void) => subscribe('window:shown', callback),
+  onWindowHidden: (callback: () => void) => subscribe('window:hidden', callback),
   onSessionRestored: (callback: (session: unknown) => void) => subscribe('goal:session-restored', callback),
+  prepareVoice: (id: number): Promise<VoiceResult> => ipcRenderer.invoke('voice:prepare', id),
+  transcribeVoice: (id: number, language: VoiceLanguage, audio: ArrayBuffer): Promise<TranscriptionResult> =>
+    ipcRenderer.invoke('voice:transcribe', id, language, audio),
+  cancelVoice: (id: number): void => ipcRenderer.send('voice:cancel', id),
   // Window control
   closeWindow: (): void => {
     ipcRenderer.send('window:close')

@@ -3,6 +3,7 @@ import { createTray } from './tray'
 import { registerIPC } from './ipc'
 import { ServiceManager, ShortcutService } from './services'
 import { createAssistantWindow } from './windows/assistant'
+import { configureVoicePermissions } from './services/voice'
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock()
@@ -25,8 +26,7 @@ app.on('web-contents-created', (_, contents) => {
 
 app.whenReady().then(() => {
   if (!gotTheLock) return
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, reply) => reply(false))
-  session.defaultSession.setPermissionCheckHandler(() => false)
+  configureVoicePermissions(session.defaultSession)
   // Register future services
   serviceManager.registerPlaceholders()
 

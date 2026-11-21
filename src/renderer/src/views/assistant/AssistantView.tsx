@@ -3,6 +3,9 @@ import './AssistantView.css';
 import { TitleBar } from '@/components/TitleBar';
 import { GlintLogo } from '@/components/GlintLogo';
 import { Input } from '@/components/Input';
+import { useVoiceInput } from '@/hooks/useVoiceInput';
+import type { GoalInput } from '../../../../shared/input';
+import type { VoiceLanguage } from '../../../../shared/voice';
 import StartupAnimation from './StartupAnimation';
 
 // Helper to compare screenshots using a downscaled canvas average hash (aHash) comparison
@@ -71,6 +74,8 @@ export const AssistantView: React.FC = () => {
   const [response, setResponse] = useState<string | null>(null);
   const [currentGoal, setCurrentGoal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>('en');
+  const [transcriptLanguage, setTranscriptLanguage] = useState<VoiceLanguage | null>(null);
 
   // Resume Banner states
   const [showBanner, setShowBanner] = useState(false);
@@ -78,8 +83,18 @@ export const AssistantView: React.FC = () => {
   const [pendingSession, setPendingSession] = useState<any>(null);
 
   const requestId = useRef(0);
+  const submitting = useRef(false);
   const displaySectionRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const voice = useVoiceInput((text, language) => {
+    setInputValue(text);
+    setTranscriptLanguage(language);
+    window.glintAPI.resetGoalInactivity();
+    requestAnimationFrame(() => inputRef.current?.focus());
+  });
+  const { cancel: cancelVoice } = voice;
+  const voiceBusy = voice.phase !== 'idle';
+  const listening = voice.phase === 'listening';
 
   // Focus the input field on mount and whenever the window is shown
   useEffect(() => {
@@ -95,18 +110,19 @@ export const AssistantView: React.FC = () => {
     return window.glintAPI.onWindowShown(handleFocusInput);
   }, []);
 
-  // Listen for Escape key to pause active guidance session
+  // Escape first cancels an active recording. Otherwise it retains the close behavior.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !e.repeat && !e.isComposing && !cancelVoice()) {
         window.glintAPI?.snoozeGoal();
+        window.glintAPI?.closeWindow();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [cancelVoice]);
 
   // Auto-scroll to bottom of conversation
   useEffect(() => {
@@ -183,41 +199,41 @@ export const AssistantView: React.FC = () => {
     return window.glintAPI.onSessionRestored(handleSessionRestored);
   }, []);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        window.glintAPI?.closeWindow();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
   const handleInputChange = (val: string) => {
     setInputValue(val);
+    if (!val) {
+      setTranscriptLanguage(null);
+      voice.clearMessage();
+    }
     window.glintAPI?.resetGoalInactivity();
   };
 
   const handleSend = async () => {
-    if (!inputValue.trim() || analyzing) return;
+    if (!inputValue.trim() || submitting.current || voice.isActive()) return;
     
     const id = ++requestId.current;
     const goal = inputValue.trim();
+    const input: GoalInput = transcriptLanguage
+      ? { source: 'voice', final: true, text: goal, language: transcriptLanguage }
+      : { source: 'text', text: goal };
+    submitting.current = true;
     setAnalyzing(true);
     setCurrentGoal(goal);
     setResponse(null);
     setError(null);
     setShowBanner(false);
+    voice.clearMessage();
     
     // Activity interaction reset
     window.glintAPI?.resetGoalInactivity();
     
     try {
-      const result = await window.glintAPI.executeGoalStep({ source: 'text', text: goal });
+      const result = await window.glintAPI.executeGoalStep(input);
       if (id !== requestId.current) return;
       if (result.success && result.text) {
         setResponse(result.text);
         setInputValue(''); // Clear input on success
+        setTranscriptLanguage(null);
       } else {
         setError(result.error || 'Failed to analyze screen');
       }
@@ -226,12 +242,15 @@ export const AssistantView: React.FC = () => {
       console.error('Goal execution failed:', err);
       setError(err?.message || 'A connection error occurred during analysis');
     } finally {
-      if (id === requestId.current) setAnalyzing(false);
+      if (id === requestId.current) {
+        submitting.current = false;
+        setAnalyzing(false);
+      }
     }
   };
 
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.repeat && !e.nativeEvent.isComposing && e.keyCode !== 229) {
       handleSend();
     }
   };
@@ -248,11 +267,15 @@ export const AssistantView: React.FC = () => {
 
   const handleStartNew = async () => {
     requestId.current++;
+    submitting.current = false;
+    cancelVoice();
+    voice.clearMessage();
     setAnalyzing(false);
     await window.glintAPI?.clearGoalSession();
     setCurrentGoal(null);
     setResponse(null);
     setInputValue('');
+    setTranscriptLanguage(null);
     setError(null);
     setShowBanner(false);
     setPendingSession(null);
@@ -261,10 +284,13 @@ export const AssistantView: React.FC = () => {
   const actionButtons = (
     <div className="assistant-action-buttons">
       <button 
-        className="assistant-action-btn" 
-        aria-label="Voice input" 
-        title="Voice input is planned"
-        disabled
+        type="button"
+        className={`assistant-action-btn voice-btn${listening ? ' is-listening' : ''}`}
+        aria-label={listening ? 'Stop recording' : 'Start recording'}
+        title={listening ? 'Stop recording' : 'Start recording'}
+        aria-pressed={listening}
+        onClick={() => listening ? voice.stop() : void voice.start(voiceLanguage)}
+        disabled={analyzing || (voiceBusy && !listening)}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
@@ -278,7 +304,7 @@ export const AssistantView: React.FC = () => {
         aria-label="Send" 
         title="Send"
         onClick={handleSend}
-        disabled={analyzing || !inputValue.trim()}
+        disabled={analyzing || voiceBusy || !inputValue.trim()}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -329,11 +355,28 @@ export const AssistantView: React.FC = () => {
               autoFocus
               value={inputValue} 
               onChange={handleInputChange} 
+              aria-label="Goal or transcript"
               placeholder="Describe what you'd like to accomplish..." 
               suffix={actionButtons}
               onKeyDown={handleInputKeyDown}
               disabled={analyzing}
+              readOnly={voiceBusy}
             />
+
+            <div className="assistant-voice-row">
+              <label className="assistant-voice-language">
+                <span>Voice</span>
+                <select aria-label="Voice language" value={voiceLanguage} disabled={voiceBusy || analyzing}
+                  onChange={(event) => setVoiceLanguage(event.target.value === 'ta' ? 'ta' : 'en')}>
+                  <option value="en">English</option>
+                  <option value="ta" lang="ta">தமிழ் (Tamil)</option>
+                </select>
+              </label>
+              <span className={`assistant-voice-status${voice.error ? ' voice-error' : ''}`} role={voice.error ? 'alert' : 'status'}>
+                {voice.message || (!analyzing && 'Click the microphone to record.')}
+              </span>
+              {voiceBusy && <button type="button" className="assistant-voice-cancel" onClick={() => cancelVoice()}>Cancel</button>}
+            </div>
             
             <div className="assistant-display-section" ref={displaySectionRef}>
               {analyzing && (
@@ -392,7 +435,7 @@ export const AssistantView: React.FC = () => {
               )}
             </div>
 
-            <div className="assistant-shortcut-hint">Press ESC to close</div>
+            <div className="assistant-shortcut-hint">{voiceBusy ? 'Press Esc to cancel' : 'Press Esc to close'}</div>
           </div>
         </div>
       </div>

@@ -9,6 +9,7 @@ import { GuidanceSessionService, GuidanceSessionState } from './services/guidanc
 import { roleOf } from './windows/roles'
 import { SettingsStore } from './services/settings'
 import { getSystemInfo } from './services/system-info'
+import { cancelVoice, prepareVoice, transcribeVoice } from './services/voice'
 import { resolveGoalInput } from '../shared/input'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -74,6 +75,18 @@ export function registerIPC(): void {
   handle('settings:get', ['settings'], () => settings.view())
   handle('settings:save', ['settings'], (patch: unknown) => settings.update(patch))
   handle('screen:capture', assistant, () => CaptureService.capture())
+  ipcMain.handle('voice:prepare', (event, id: unknown) => {
+    checkSender(event, assistant)
+    return prepareVoice(event.sender, id)
+  })
+  ipcMain.handle('voice:transcribe', (event, id: unknown, language: unknown, audio: unknown) => {
+    checkSender(event, assistant)
+    return transcribeVoice(event.sender, id, language, audio)
+  })
+  ipcMain.on('voice:cancel', (event, id: unknown) => {
+    try { checkSender(event, assistant) } catch { return }
+    if (typeof id === 'number') cancelVoice(event.sender, id)
+  })
 
   handle('goal:execute', assistant, async (input: unknown) => {
     try {

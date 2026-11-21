@@ -1,8 +1,13 @@
 import type { GoalInput } from '../shared/input'
+import type { TranscriptionResult, VoiceLanguage, VoiceResult } from '../shared/voice'
 import type { Settings } from '../renderer/src/types'
 
 interface GlintAPI {
   onWindowShown: (callback: () => void) => () => void
+  onWindowHidden: (callback: () => void) => () => void
+  prepareVoice: (id: number) => Promise<VoiceResult>
+  transcribeVoice: (id: number, language: VoiceLanguage, audio: ArrayBuffer) => Promise<TranscriptionResult>
+  cancelVoice: (id: number) => void
   onSessionRestored: (callback: (session: any) => void) => () => void
   closeWindow: () => void
   minimizeWindow: () => void
