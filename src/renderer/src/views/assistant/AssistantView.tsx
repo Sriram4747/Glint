@@ -345,7 +345,7 @@ export const AssistantView: React.FC = () => {
                 <GlintLogo size={24} animated={true} />
                 <span className="assistant-title">Glint</span>
               </div>
-              <p className="assistant-subtitle">Describe a goal to get guidance from Gemini using your screen.</p>
+              <p className="assistant-subtitle">Ask to open Windows Settings or get step-by-step guidance.</p>
             </>
           )}
           
@@ -382,7 +382,7 @@ export const AssistantView: React.FC = () => {
               {analyzing && (
                 <div className="analysis-loading">
                   <span className="spinner-dot"></span>
-                  <span>Analyzing your screen...</span>
+                  <span>Working on your request...</span>
                 </div>
               )}
 
@@ -394,7 +394,7 @@ export const AssistantView: React.FC = () => {
                     <line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
                   <span role="alert">{error}</span>
-                  {error.includes('Settings') && <button onClick={() => window.glintAPI.openSettings()}>Open Settings</button>}
+                  {error.includes('Gemini API key') && <button onClick={() => window.glintAPI.openSettings()}>Open Settings</button>}
                 </div>
               )}
 

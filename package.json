@@ -8,6 +8,7 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test:desktop": "node tests/desktop/run.cjs",
+    "test:navigation": "node tests/desktop/navigation.cjs",
     "setup:voice": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-voice.ps1",
     "preview": "electron-vite preview",
     "start": "electron-vite preview"

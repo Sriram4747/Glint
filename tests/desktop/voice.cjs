@@ -1,5 +1,6 @@
 // Run with Node and supply a short PCM WAV sample in the selected language.
 // Chromium uses the file as its microphone unless --physical plays it through the speakers.
+// --navigation exercises a real Windows launch from the reviewed transcript.
 const assert = require('node:assert/strict')
 const { mkdtempSync, existsSync } = require('node:fs')
 const { tmpdir } = require('node:os')
@@ -7,24 +8,27 @@ const { join, resolve } = require('node:path')
 const { execFile, spawnSync } = require('node:child_process')
 
 if (!process.versions.electron) {
-  const [language, file, mode] = process.argv.slice(2)
+  const [language, file, ...flags] = process.argv.slice(2)
   assert.ok(['en', 'ta'].includes(language) && file && existsSync(file),
-    'Usage: node tests/desktop/voice.cjs en|ta <PCM WAV file> [--physical]')
+    'Usage: node tests/desktop/voice.cjs en|ta <PCM WAV file> [--physical] [--navigation]')
   const profile = mkdtempSync(join(tmpdir(), 'glint-voice-test-'))
   const env = { ...process.env }
   for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'GEMINI_API_KEY']) delete env[key]
-  const test = spawnSync(require('electron'), [__filename, profile, language, resolve(file), mode || ''], {
+  const test = spawnSync(require('electron'), [__filename, profile, language, resolve(file), ...flags], {
     cwd: profile, env, timeout: 120000, stdio: 'inherit', windowsHide: true
   })
   if (test.error) throw test.error
   process.exit(test.status ?? 1)
 }
 
-const { app, BrowserWindow, Tray, desktopCapturer, nativeImage, screen } = require('electron')
-const [profile, language, file, mode] = process.argv.slice(2)
+const { app, BrowserWindow, Tray, desktopCapturer, nativeImage, screen, shell } = require('electron')
+const [profile, language, file, ...flags] = process.argv.slice(2)
+const physical = flags.includes('--physical')
+const navigation = flags.includes('--navigation')
+const audioSource = physical ? 'physical microphone via speaker playback' : 'file-backed microphone'
 app.setPath('userData', profile)
 app.disableHardwareAcceleration()
-if (mode !== '--physical') {
+if (!physical) {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream')
   app.commandLine.appendSwitch('use-file-for-fake-audio-capture', `${file}%noloop`)
 }
@@ -56,6 +60,14 @@ const findWindow = role => until(() => BrowserWindow.getAllWindows().find(win =>
 
 // Send neither private screenshots nor real credentials to Gemini during this test.
 const requests = []
+const launches = []
+if (navigation) {
+  const openExternal = shell.openExternal.bind(shell)
+  shell.openExternal = async uri => {
+    launches.push(uri)
+    await openExternal(uri)
+  }
+}
 let rejectModel = false
 global.fetch = async (_url, options) => {
   requests.push(JSON.parse(options.body).contents[0].parts[0].text)
@@ -75,7 +87,9 @@ app.whenReady().then(async () => {
   tray('Settings')
   const settings = await findWindow('settings')
   await assert.rejects(settings.webContents.executeJavaScript('glintAPI.prepareVoice(1)'))
-  await settings.webContents.executeJavaScript(`glintAPI.saveSettings({ai: {apiKey: 'local-fixture-only'}, general: {guidanceLevel: 'minimal'}})`)
+  if (!navigation) {
+    await settings.webContents.executeJavaScript(`glintAPI.saveSettings({ai: {apiKey: 'local-fixture-only'}, general: {guidanceLevel: 'minimal'}})`)
+  }
   settings.close()
 
   tray('Open Assistant')
@@ -117,9 +131,10 @@ app.whenReady().then(async () => {
   assert.ok(await stopped())
   assert.equal(await status(), 'Recording cancelled.')
   assert.equal(requests.length, 0)
+  assert.deepEqual(launches, [])
 
   await start()
-  if (mode === '--physical') {
+  if (physical) {
     await new Promise((resolve, reject) => {
       execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
         '[System.Media.SoundPlayer]::new($env:GLINT_TEST_WAV).PlaySync()'], {
@@ -140,10 +155,33 @@ app.whenReady().then(async () => {
   const transcript = await run('document.querySelector("input").value')
   assert.match(transcript, language === 'en' ? /bluetooth/i : /[\u0b80-\u0bff]/u)
   assert.equal(requests.length, 0)
+  assert.deepEqual(launches, [])
   assert.ok(await run('!!document.querySelector(".send-btn:not(:disabled)")'))
 
+  if (navigation) {
+    const english = language === 'en'
+    const target = english ? 'Bluetooth' : 'Sound'
+    const uri = english ? 'ms-settings:bluetooth' : 'ms-settings:sound'
+    // The available Tamil sample tests recording in Tamil and the editable draft.
+    if (!english) {
+      await run('document.querySelector("input").select()')
+      await assistant.webContents.insertText('ஒலி அமைப்புகளைத் திறக்கவும்.')
+    }
+    const submitted = await run('document.querySelector("input").value')
+    await run('document.querySelector(".send-btn").click(); document.querySelector(".send-btn").click()')
+    await until(() => run(`document.querySelector('.response-text')?.textContent.includes('Asked Windows to open ${target}')`),
+      `launch response for ${target}`)
+    assert.deepEqual(launches, [uri])
+    assert.equal(requests.length, 0)
+    console.log(`PASS ${language} ${audioSource} / native launch ${uri}`)
+    console.log(`Recognized: ${transcript} | Submitted: ${submitted}`)
+    console.log('PASS cancellation, track cleanup, no launch before Send, one OS request, zero Gemini calls')
+    app.quit()
+    return
+  }
+
   await run('document.querySelector("input").select()')
-  const goal = language === 'en' ? 'Show me how to open Bluetooth settings.' : 'புளூடூத் அமைப்புகளை எப்படித் திறப்பது?'
+  const goal = language === 'en' ? 'Show me how to open Bluetooth settings.' : 'புளூடூத் அமைப்புகளைத் திறப்பது எப்படி என்று விளக்கவும்.'
   await assistant.webContents.insertText(goal)
   rejectModel = true
   await run('document.querySelector(".send-btn").click(); document.querySelector(".send-btn").click()')
@@ -159,7 +197,7 @@ app.whenReady().then(async () => {
   const typed = await run(`glintAPI.executeGoalStep({ source: 'text', text: ${JSON.stringify(goal)} })`)
   assert.equal(typed.success, true)
   assert.equal(requests[1], requests[2])
-  console.log(`PASS ${language} ${mode === '--physical' ? 'physical microphone via speaker playback' : 'file-backed microphone'} / ${transcript}`)
+  console.log(`PASS ${language} ${audioSource} / ${transcript}`)
   console.log('PASS permission scope, cancellation, track cleanup, editable review, single submission, Gemini error and L1 text parity')
   app.quit()
 }).catch(error => {

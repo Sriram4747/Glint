@@ -9,6 +9,9 @@ import { GuidanceSessionService, GuidanceSessionState } from './services/guidanc
 import { roleOf } from './windows/roles'
 import { SettingsStore } from './services/settings'
 import { getSystemInfo } from './services/system-info'
+import { settingsDestinations } from './services/settings-destinations'
+import { routeSettingsIntent } from './services/settings-intent'
+import { SettingsNavigationService } from './services/settings-navigation'
 import { cancelVoice, prepareVoice, transcribeVoice } from './services/voice'
 import { resolveGoalInput } from '../shared/input'
 import { join } from 'node:path'
@@ -53,9 +56,14 @@ function checkSender(event: IpcMainInvokeEvent | IpcMainEvent, roles: string[]):
 
 export function registerIPC(): void {
   const settings = new SettingsStore()
+  const settingsNavigation = new SettingsNavigationService()
   const assistant = ['assistant']
   const controls = ['assistant', 'floating-assistant']
   const windows = [...controls, 'settings', 'system-details']
+  function clearGuidance() {
+    if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) GuidanceSessionService.cancel()
+    GoalService.clearSession()
+  }
   function handle(channel: string, roles: string[], fn: (...args: any[]) => unknown) {
     ipcMain.handle(channel, (event, ...args) => {
       checkSender(event, roles)
@@ -91,6 +99,17 @@ export function registerIPC(): void {
   handle('goal:execute', assistant, async (input: unknown) => {
     try {
       const { goal } = resolveGoalInput(input)
+      const intent = routeSettingsIntent(goal)
+      if (intent.kind === 'clarify') {
+        const choices = intent.choices.map(destination => settingsDestinations[destination].label)
+        const options = choices.length > 1 ? ` ${choices.join(' or ')}?` : ''
+        const example = choices[0] || 'Wi-Fi'
+        return { success: true, text: `Which Windows Settings page should I open?${options} Try “Open ${example} settings.”` }
+      }
+      if (intent.kind === 'open' && process.platform === 'win32') {
+        clearGuidance()
+        return await settingsNavigation.open(intent.destination)
+      }
       const { key, visual, model } = settings.guidance()
       if (!key) return { success: false, error: 'Add a Gemini API key in Settings to start guidance.' }
       if (visual) {
@@ -105,12 +124,7 @@ export function registerIPC(): void {
       return { success: false, error: error instanceof Error ? error.message : 'Guidance failed.' }
     }
   })
-  handle('goal:clear', controls, async () => {
-    if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) {
-      GuidanceSessionService.cancel()
-    }
-    GoalService.clearSession()
-  })
+  handle('goal:clear', controls, clearGuidance)
 
   handle('goal:get-session', controls, async () => {
     if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) {

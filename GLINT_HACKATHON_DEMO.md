@@ -1,30 +1,39 @@
-# Glint Round 1 demo
+# Glint hackathon demo
 
-**Everyday Access | Your Computer. Your Language.** People who are more comfortable speaking Tamil can get stuck in Windows settings that use unfamiliar English terms. Glint lets them say what they want to do, correct the transcription, and get a screen-specific next step while keeping the visible Windows labels recognizable.
+**Everyday Access | Your Computer. Your Language.** Ask Glint for a Windows Settings page in English or Tamil. Review what it heard and send the request. Windows Settings opens the requested page directly.
 
-## Before recording the demo
+## Before the demo
 
-1. On Windows 11 x64, open PowerShell in the Glint repository and run `npm ci`, `npm run setup:voice`, `npm run build`, then `npm start`. The one-time voice setup downloads the CPU runtime and a roughly 190 MB multilingual model.
-2. From the Glint tray menu, open **Settings → AI** and save a valid Gemini API key. Select **Gemini 3.5 Flash Lite**, which returned the live rehearsal instruction. In **General → Guidance Level**, select **Minimal (Conversational Text)**. Glint sends the submitted text and a screen image to Gemini after you press **Send**. Microphone audio stays on the PC.
-3. Use a demo Windows profile with generic account and device names. Open Windows **Settings** with **Win+I**, maximize it on the primary display, and leave it on **Home** with the sidebar visible. In Windows microphone privacy settings, enable microphone access for desktop apps. Run one practice request to confirm the selected input and Gemini account are ready.
+On Windows 11 x64, run the following from the Glint folder. Voice setup installs the local multilingual Whisper model and runtime once. A Gemini key is optional for these five actions.
 
-## 75-second script
+```powershell
+npm ci
+npm run setup:voice
+npm run build
+npm start
+```
 
-| Time | On screen and narration |
-| --- | --- |
-| 0–10 s | Show Windows Settings Home. “If I know what I want to do but don’t recognize the Windows menu, I can ask Glint in the language I speak.” |
-| 10–20 s | Press **Ctrl+Shift+Space**. Show the **Voice** selector, choose **English**, and click the microphone. “I choose my language and speak one short request.” |
-| 20–35 s | Say **“Show me how to open Bluetooth settings.”** While **Listening** is visible, click the microphone again to stop. Wait for the transcript to appear. |
-| 35–48 s | Read the transcript, correct a word if needed, and click **Send**. “I can check every word before Glint uses it.” |
-| 48–65 s | Show the L1 instruction. The expected instruction points to **Bluetooth & devices** in the Settings sidebar. Click that item in Windows yourself and show the destination page. |
-| 65–75 s | Reopen Glint and show **தமிழ் (Tamil)** in the selector. After a successful Tamil rehearsal, repeat the request in Tamil as a second take. |
+From the tray icon, select **Open Assistant**. **Ctrl+Shift+Space** also works when Glint has registered the shortcut. Start with Windows Settings closed. Check the presenter’s default microphone and rehearse both voice lines.
 
-For Tamil, say **“புளூடூத் அமைப்புகளை எப்படித் திறப்பது?”**
+## Five direct actions
 
-Expected behavior in either language is a visible listening state, a local transcription step, an editable goal, and one guidance request after **Send**. The goal language supplies the model’s response language. Windows control labels are shown as they appear on screen. The Bluetooth workflow ends when the **Bluetooth & devices** page opens. [Microsoft’s Windows Bluetooth settings guide](https://support.microsoft.com/en-au/windows/bluetooth/find-bluetooth-settings-in-windows)
+| Step | Enter or say | Expected Windows heading |
+| --- | --- | --- |
+| 1 | Type `Open Wi-Fi settings.` | Network & internet › Wi-Fi |
+| 2 | Say in English, `Open Bluetooth settings.` | Bluetooth & devices › Devices |
+| 3 | Type `Take me to display settings.` | System › Display |
+| 4 | Say in Tamil, `ஒலி அமைப்புகளைத் திறக்கவும்.` The mixed-language `Sound settings திற.` also works as text. | System › Sound |
+| 5 | Type `Open Windows Update.` | Windows Update |
 
-## L1 fallback and recovery
+For voice, select **English** or **தமிழ் (Tamil)**, click the microphone, speak, then click **Stop recording**. Wait for the transcript, correct any words in the goal field, and press **Send**. Enter is the keyboard equivalent. For typed requests, enter the command in the same goal field and send it. After each action, show the heading in the actual Settings window, then reopen the assistant for the next request.
 
-- If rehearsing in **Standard (Visual Guidance)** and the highlight is missing or points to the wrong control, select **Stop Guidance** from the Glint tray menu. Open Glint **Settings → General**, select **Minimal (Conversational Text)**, return Windows Settings to Home, and send the goal again. Announce “Glint is giving me text instructions” and follow the displayed instruction manually.
-- During capture or transcription, click **Cancel** or press **Esc** to discard the attempt. If the microphone is unavailable, type the same request into the goal box. Use this to demonstrate the guidance flow and describe the microphone issue separately.
-- If Gemini returns an error, the draft remains editable. Check the **AI** settings and retry **Send**. A successful live model response is needed for the complete demo.
+An optional clarification example is `Open Wi-Fi or Bluetooth settings.` Glint asks which page to open. Submit `Open Wi-Fi settings.` to continue. To show cancellation, start a voice recording and press **Esc** or **Cancel** before sending.
+
+## Presenter notes
+
+- Glint reports that it asked Windows to open the page. Use the Windows heading to verify the result. Windows builds, adapters and organizational policy can affect page availability.
+- Pause for the editable draft and make the explicit Send visible. Tamil recognition varies by speaker and microphone. If the transcript is inaccurate, correct it before sending. If recording is unavailable, type `ஒலி அமைப்புகளைத் திறக்கவும்.` in the goal field.
+- Leave the Settings controls alone during the demo. Pairing, connecting, changing settings and checking for updates are separate actions.
+- Questions about how to use a page can use existing L1 or L2 guidance with a configured Gemini key. Supported page-opening requests work without it.
+
+See [the verified destinations](GLINT_NATIVE_NAVIGATION.md) and [the test report](GLINT_NAVIGATION_TEST_REPORT.md).
