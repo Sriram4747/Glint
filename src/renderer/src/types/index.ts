@@ -9,6 +9,7 @@ export interface SystemInfo {
   screenResolution: string
   displayScaling: string
   appVersion: string
+  appBuild: string
 }
 
 export interface Settings {

@@ -9,14 +9,19 @@ for (const [destination, page] of Object.entries(settingsDestinations)) {
   }
 }
 
-const settingsOnly = /^(?:(?:the )?(?:windows )?settings(?: (?:page|app))?|அமைப்புகள்)$/u
+const settingsOnly = /^(?:(?:the )?(?:windows(?: 11)? )?settings(?: (?:page|app))?|அமைப்புகள்)$/u
+
+const settingsPrefix = /^(?:windows(?: 11)? )?settings(?: (?:page|app))? (?:for|to|and (?:go|navigate) to) (?:the )?/u
+const settingsContext = / (?:in|on|under) (?:the )?(?:windows(?: 11)?(?: settings(?: app)?)?|settings(?: app)?)$/u
+const pageSuffix = / (?:(?:windows(?: 11)? )?settings(?: (?:page|screen))?|page|screen|அமைப்புகள்|அமைப்புகளை(?:த்)?)$/u
 
 function resolvePage(text: string): SettingsDestination | undefined {
   const title = text
     .replace(/^the /u, '')
-    .replace(/^(?:windows )?settings (?:page )?for /u, '')
-    .replace(/ (?:settings(?: page)?|(?:page )?in (?:the )?windows settings|அமைப்புகள்|அமைப்புகளை(?:த்)?)$/u, '')
-  return pageNames.get(title) ?? pageNames.get(title.replace(/^windows /u, ''))
+    .replace(settingsPrefix, '')
+    .replace(settingsContext, '')
+    .replace(pageSuffix, '')
+  return pageNames.get(title) ?? pageNames.get(title.replace(/^windows(?: 11)? /u, ''))
 }
 
 function clarify(choices: SettingsDestination[]) {

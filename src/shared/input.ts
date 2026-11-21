@@ -14,9 +14,7 @@ export interface SpeechProvider {
   cancel(): Promise<void>
 }
 
-export type GuidanceIntent = { kind: 'guide'; goal: string }
-
-export function resolveGoalInput(input: unknown): GuidanceIntent {
+export function resolveGoalInput(input: unknown): string {
   // Strings remain supported for callers of the original goal:execute channel.
   const value = typeof input === 'string' ? { source: 'text', text: input } : input
   if (!value || typeof value !== 'object' || !('source' in value) || !('text' in value) ||
@@ -31,5 +29,5 @@ export function resolveGoalInput(input: unknown): GuidanceIntent {
   } else if (value.source !== 'text') {
     throw new Error('Unsupported input source.')
   }
-  return { kind: 'guide', goal: value.text.trim() }
+  return value.text.trim()
 }

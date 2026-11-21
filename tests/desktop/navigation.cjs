@@ -125,8 +125,9 @@ async function enterDraft(assistant, text) {
 
 const liveCases = new Map([
   ['wifi', { text: 'Open Wi-Fi settings.', uri: 'network-wifi' }],
-  ['bluetooth', { text: 'Show me Bluetooth settings.', uri: 'bluetooth' }],
-  ['display', { text: 'Take me to display settings.', uri: 'display' }],
+  ['wifi-context', { text: 'Open the Wi-Fi settings page in Windows Settings.', uri: 'network-wifi' }],
+  ['bluetooth', { text: 'Open Windows Settings to the Bluetooth page.', uri: 'bluetooth' }],
+  ['display', { text: 'Show me the Display page.', uri: 'display' }],
   ['sound', { text: 'ஒலி அமைப்புகளைத் திறக்கவும்.', uri: 'sound' }],
   ['update', { text: 'Open Windows Update.', uri: 'windowsupdate' }],
   ['repeat', { text: 'Open Windows Update.', uri: 'windowsupdate', repeat: true }],
@@ -134,7 +135,7 @@ const liveCases = new Map([
   ['unsupported', { text: "Don't open Wi-Fi settings.", response: 'Gemini API key', error: true }],
   ['explorer', { text: 'Open File Explorer.', folder: '', response: 'This PC is open in File Explorer' }],
   ['downloads', { text: 'Where are my downloaded files?', folder: 'downloads', response: 'Downloads is open in File Explorer' }],
-  ['documents', { text: 'Show me my Documents.', folder: 'documents', response: 'Documents is open in File Explorer' }],
+  ['documents', { text: 'Open File Explorer to my Documents folder.', folder: 'documents', response: 'Documents is open in File Explorer' }],
   ['pictures', { text: 'படங்கள் கோப்புறையைத் திறக்கவும்.', folder: 'pictures', response: 'Pictures is open in File Explorer' }],
   ['latest-pdf', { text: 'Show me the latest PDF in Downloads.', response: 'for you to browse in File Explorer' }]
 ])
@@ -168,6 +169,11 @@ async function runLive(assistant) {
   console.log(`PASS live ${scenario} / ${outcome}`)
 }
 
+const liveCheck = liveCases.get(scenario)
+if (live && (liveCheck?.uri || liveCheck?.folder !== undefined)) {
+  writeFileSync(join(profile, 'settings.json'), JSON.stringify({ general: { guidanceLevel: 'standard' } }))
+  process.env.GEMINI_API_KEY = 'local-fixture-only'
+}
 require('../../out/main/index.js')
 app.whenReady().then(async () => {
   tray('Open Assistant')
@@ -200,6 +206,8 @@ app.whenReady().then(async () => {
   const cases = [
     ['direct English', ([name]) => submit(`Open ${name} settings.`)],
     ['alternative English', ([, alias]) => submit(`Can you take me to the ${alias} page in Windows Settings?`)],
+    ['Settings app context from a transcript', ([name]) => submit(`Hey Glint, could you pull up the ${name} settings page in Windows Settings for me, please?`, 'en')],
+    ['Windows Settings before the destination', ([, alias]) => submit(`Open the Windows 11 Settings app to the ${alias} page.`)],
     ['Tamil text', ([, , tamil]) => submit(`${tamil} அமைப்புகளைத் திறக்கவும்.`)],
     ['English final transcript', ([name]) => submit(`Show me ${name} settings.`, 'en')],
     ['Tamil final transcript', ([, , tamil]) => submit(`${tamil} settings எப்படி open பண்றது?`, 'ta')],
@@ -253,13 +261,15 @@ app.whenReady().then(async () => {
     "Don't open Wi-Fi settings.", 'Explain what Bluetooth is.', 'Can you show me how Wi-Fi works?',
     'Show me how to open Bluetooth settings.', 'Turn off Wi-Fi.', 'Pair my Bluetooth headphones.',
     'Open Wi-Fi settings and turn it off.',
+    'Open the Wi-Fi settings page in Windows Settings and turn Wi-Fi off.',
+    'Show me how to open the Display page in Windows Settings.',
     'Open Wi-Fi settings && ms-settings:windowsupdate', 'Open ms-settings:display',
     'Open Wi-Fi settings\nOpen Sound settings', 'Open https://example.invalid',
     'Open Advanced display settings.', 'வைஃபை அமைப்புகளைத் திறக்க வேண்டாம்.',
     'புளூடூத் அமைப்புகளைத் திறப்பது எப்படி என்று விளக்கவும்.'
   ]) {
     await test(`must not launch / ${text}`, async () => {
-      assert.match((await submit(text)).error, /API key/)
+      assert.match((await submit(text)).error, /^No direct Windows action .*API key/)
       assert.deepEqual(requested, [])
     })
   }
@@ -305,7 +315,7 @@ app.whenReady().then(async () => {
     await run(settings, `glintAPI.saveSettings({general: {guidanceLevel: 'standard'}, ai: {apiKey: 'local-fixture-only'}})`)
     settings.close()
     tray('Open Assistant')
-    const result = await submit('Open Sound settings.')
+    const result = await submit('Show me the Sound settings page in Windows Settings.', 'en')
     assert.equal(result.success, true)
     assert.deepEqual(requested, ['ms-settings:sound'])
   })
@@ -325,6 +335,9 @@ app.whenReady().then(async () => {
     ['Show me my Documents.', 'documents'],
     ['Open the Pictures folder.', 'pictures'],
     ['Where are my downloaded files?', 'downloads'],
+    ['Open File Explorer to my Documents folder.', 'documents'],
+    ['Show me the Pictures directory in File Explorer.', 'pictures'],
+    ['Where can I find my Downloads folder in File Explorer?', 'downloads', 'en'],
     ['ஆவணங்கள் கோப்புறையை திறக்கவும்.', 'documents', 'ta'],
     ['Open the Pictures directory.', 'pictures', 'en'],
     ['Downloads folder எங்கே இருக்கு?', 'downloads'],

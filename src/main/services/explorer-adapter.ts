@@ -19,13 +19,15 @@ for (const [id, folder] of Object.entries(folders)) {
   for (const name of [id, ...folder.aliases]) folderNames.set(name, id as KnownFolder)
 }
 
-const locationQuestion = /^(?:where (?:is|are) (.+)|(.+?) (?:எங்கே (?:இருக்கு|இருக்கிறது|உள்ளது)|எங்க இருக்கு))$/u
+const locationQuestion = /^(?:where (?:is|are|can i find) (.+)|(.+?) (?:எங்கே (?:இருக்கு|இருக்கிறது|உள்ளது)|எங்க இருக்கு))$/u
 // Keep file-related requests inside this adapter, including requests that ask for individual files.
 const fileWords = /\b(?:explorer|folders?|director(?:y|ies)|files?|pdfs?|downloads?|documents|pictures|photos|appdata)\b|பதிவிறக்க|ஆவண|கோப்ப|படங்கள்|டவுன்லோட்|புகைப்பட/u
 const filePath = /\\|(?:^|[\s"'(])(?:[a-z]:\/|\.{1,2}\/|~\/|\/)|\.(?:pdf|docx?|xlsx?|pptx?|txt|csv|json|env|md|jpe?g|png|mp4|exe|msi|lnk|url|bat|cmd|ps1|zip)\b/u
 
 function resolveFolder(target: string) {
-  return folderNames.get(target.replace(/^(?:the |my |என் |எனது )/u, '')
+  return folderNames.get(target.replace(/^(?:the )?(?:(?:file|windows) )?explorer (?:to|at|in) /u, '')
+    .replace(/^(?:the |my |என் |எனது )/u, '')
+    .replace(/ in (?:the )?(?:file|windows) explorer$/u, '')
     .replace(/ (?:folder|directory|folder-ஐ|கோப்புறை(?:யை(?:த்)?)?)$/u, ''))
 }
 

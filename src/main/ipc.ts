@@ -97,26 +97,37 @@ export function registerIPC(): void {
   })
 
   handle('goal:execute', assistant, async (input: unknown) => {
+    let fallbackReason: string | undefined
+    const explain = (message: string) => fallbackReason ? `${fallbackReason} ${message}` : message
     try {
-      const { goal } = resolveGoalInput(input)
+      const goal = resolveGoalInput(input)
       const intent = nativeActions.resolve(goal)
-      if (intent?.kind === 'reply') return { success: true, text: intent.text }
-      if (intent?.kind === 'open' && process.platform === 'win32') {
+      if (intent.kind === 'reply') return { success: true, text: intent.text }
+      if (intent.kind === 'open') {
+        if (process.platform !== 'win32') {
+          return { success: false, error: 'This direct action is only available on Windows.' }
+        }
         clearGuidance()
         return await nativeActions.execute(intent.action)
       }
+      fallbackReason = intent.reason
       const { key, visual, model } = settings.guidance()
-      if (!key) return { success: false, error: 'Add a Gemini API key in Settings to start guidance.' }
+      if (!key) return { success: false, error: explain('Add a Gemini API key in Settings to start guidance.') }
       if (visual) {
         GoalService.clearSession()
-        await GuidanceSessionService.start(goal, key, model)
-        return { success: true, text: 'Visual guidance is ready.' }
+        await GuidanceSessionService.start(goal, key, fallbackReason, model)
+        return { success: true, text: explain('Visual guidance is ready.') }
       }
       if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) GuidanceSessionService.cancel()
       const result = await GoalService.executeGoalStep(goal, key, model)
-      return { ...result, text: result.data?.nextStep }
+      const instruction = result.data?.nextStep
+      return {
+        ...result,
+        error: result.error ? explain(result.error) : undefined,
+        text: instruction ? `${fallbackReason}\n${instruction}` : undefined
+      }
     } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : 'Guidance failed.' }
+      return { success: false, error: explain(error instanceof Error ? error.message : 'Guidance failed.') }
     }
   })
   handle('goal:clear', controls, clearGuidance)

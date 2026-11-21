@@ -4,6 +4,7 @@ import { registerIPC } from './ipc'
 import { ServiceManager, ShortcutService } from './services'
 import { createAssistantWindow } from './windows/assistant'
 import { configureVoicePermissions } from './services/voice'
+import { readBuildFingerprint, runningBuild } from './services/runtime-build'
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock()
@@ -12,10 +13,20 @@ if (!gotTheLock) {
 }
 
 const serviceManager = new ServiceManager()
+const showAssistantFlag = '--glint-show-assistant'
+let relaunching = false
 
 app.on('second-instance', () => {
-  // If user tries to launch a second instance, show the assistant
-  createAssistantWindow()
+  if (relaunching) return
+  const currentBuild = readBuildFingerprint()
+  if (runningBuild && currentBuild && currentBuild !== runningBuild) {
+    relaunching = true
+    const args = process.argv.slice(1).filter(arg => arg !== showAssistantFlag)
+    app.relaunch({ args: [...args, showAssistantFlag] })
+    app.quit()
+    return
+  }
+  void app.whenReady().then(() => { if (!relaunching) createAssistantWindow() })
 })
 
 app.on('web-contents-created', (_, contents) => {
@@ -26,6 +37,7 @@ app.on('web-contents-created', (_, contents) => {
 
 app.whenReady().then(() => {
   if (!gotTheLock) return
+  if (runningBuild) console.info(`Glint build ${runningBuild.slice(0, 12)}`)
   configureVoicePermissions(session.defaultSession)
   // Register future services
   serviceManager.registerPlaceholders()
@@ -38,6 +50,7 @@ app.whenReady().then(() => {
 
   // Register activation global keyboard shortcuts
   ShortcutService.register()
+  if (process.argv.includes(showAssistantFlag)) createAssistantWindow()
 })
 
 app.on('will-quit', () => {

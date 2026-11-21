@@ -1,4 +1,5 @@
 import type { GoalInput } from '../shared/input'
+import type { FloatingProgress } from '../shared/guidance'
 import type { TranscriptionResult, VoiceLanguage, VoiceResult } from '../shared/voice'
 import type { Settings } from '../renderer/src/types'
 
@@ -29,7 +30,7 @@ interface GlintAPI {
   resetGoalInactivity: () => void
   onOverlayUpdate: (callback: (data: { rect: any; label: string; actionType?: string }) => void) => () => void
   onOverlayClear: (callback: () => void) => () => void
-  onFloatingUpdate: (callback: (data: { step: string; goal: string }) => void) => () => void
+  onFloatingUpdate: (callback: (data: FloatingProgress) => void) => () => void
 }
 
 declare global {

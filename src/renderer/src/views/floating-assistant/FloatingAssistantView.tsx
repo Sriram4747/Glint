@@ -4,6 +4,7 @@ import './FloatingAssistantView.css';
 export const FloatingAssistantView: React.FC = () => {
   const [stepText, setStepText] = useState('Step 1');
   const [goalText, setGoalText] = useState('Active Goal');
+  const [fallbackReason, setFallbackReason] = useState<string>();
   const [isAdvancing, setIsAdvancing] = useState(false);
 
   useEffect(() => {
@@ -11,6 +12,7 @@ export const FloatingAssistantView: React.FC = () => {
       return window.glintAPI.onFloatingUpdate((data) => {
         if (data.step) setStepText(data.step);
         if (data.goal) setGoalText(data.goal);
+        setFallbackReason(data.fallbackReason);
         setIsAdvancing(false);
       });
     }
@@ -60,6 +62,7 @@ export const FloatingAssistantView: React.FC = () => {
       <div className="glint-floating-details">
         <div className="glint-floating-title">{goalText}</div>
         <div className="glint-floating-step">{stepText}</div>
+        {fallbackReason && <div className="glint-floating-reason">{fallbackReason}</div>}
       </div>
 
       {/* Next Step Button */}

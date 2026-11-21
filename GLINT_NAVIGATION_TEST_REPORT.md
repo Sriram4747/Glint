@@ -2,6 +2,30 @@
 
 **November 21, 2026 · Windows 11 26H2 · build 26300.9974**
 
+## Visual fallback investigation
+
+The previous bundle was executed with Standard guidance and a local Gemini fixture. `Open Wi-Fi settings` made one native request to `ms-settings:network-wifi` with zero screen captures and zero model calls. The final voice transcript `Open the Wi-Fi settings page in Windows Settings.` and typed `Show me the Display page.` both selected visual guidance with zero native launches. The Settings parser stripped only one suffix, so a page qualifier could remain after removing the Windows Settings context. A bare `page` qualifier also missed the catalog. The main process then selected Standard guidance because the router returned no action. Voice and typed submissions shared that same path.
+
+The working-tree history and generated bundle both contained the native launcher and registered it before L2 selection. No Glint instance was running when processes were inspected, so the build that handled the original request could not be identified. The installed Electron Vite CLI showed that `npm start` rebuilds by default. The old single-instance handler could still reopen an already-running process from an earlier build. The new handler compares the running fingerprint with the on-disk bundle when another launch arrives.
+
+Typechecks, build and 301 automated navigation cases passed on the corrected bundle. The regression suite exercises the context qualifiers across all 20 Settings destinations, keeps explanation and state-change requests on their existing paths, and checks that an L2-enabled profile still uses direct navigation for a supported transcript. Supported launches are checked for zero screen captures and zero model requests.
+
+| Live request in build `443b3117580b` | Observed destination |
+| --- | --- |
+| `Open the Wi-Fi settings page in Windows Settings.` | Network & internet › Wi-Fi |
+| `Open Windows Settings to the Bluetooth page.` | Bluetooth & devices › Devices |
+| `Show me the Display page.` | System › Display |
+| `ஒலி அமைப்புகளைத் திறக்கவும்.` | System › Sound |
+| Downloads, Documents and Pictures via the Explorer adapter | Windows Shell location verification passed for each folder. |
+
+The live typed requests used the real Windows launcher with Standard visual guidance enabled in an isolated profile. The exact short Wi-Fi command also dispatched `ms-settings:network-wifi`. For voice, a locally synthesized clip played through Chromium’s file-backed microphone. Whisper returned `Open the Bluetooth settings page in Windows settings.` and Send opened Bluetooth with zero model calls. An unsupported request to see the latest PDF still received a local folder-browsing reply.
+
+`node tests/desktop/build-reload.cjs` verified an isolated copy of the built app. Launching a second time with the same bundle reused the original process. Replacing the bundle in that fixture and launching again started a different PID. The relaunched assistant reported the new build fingerprint over IPC.
+
+The full `npm run test:desktop` suite passed. Its fixture verified the fallback reason in both L1 and L2, visual plan progression and overlays, and the two-minute inactivity reminder. No real Gemini requests were made during these checks.
+
+After testing, Glint was started with its normal profile from this workspace. The running process logged `443b3117580b`, matching an independent fingerprint of the built main, preload and renderer entry files. Its activation shortcut registered successfully.
+
 ## File Explorer extension
 
 The shared suite passed **256 automated cases** across both adapters. Explorer additions covered English and Tamil requests, final transcripts, redirected local folders, duplicate requests, launch errors and unverified dispatch, ambiguity, missing folders, unsafe path forms, and file operations. Requests such as `Show me the latest PDF in Downloads` and `நான் download பண்ண file-ஐ காட்டு` received a local folder-browsing reply. Those requests made no launch, screen capture or model call.

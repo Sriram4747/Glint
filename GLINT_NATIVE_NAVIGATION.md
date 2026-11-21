@@ -42,9 +42,9 @@ The Explorer adapter resolves known folders through Electron’s `app.getPath`. 
 
 ## Routing and execution
 
-1. The assistant sends typed text or a reviewed final transcript through `goal:execute`. The main process validates the sender, input source and text.
-2. `NativeActions` normalizes Unicode, case and whitespace once, then passes the whole request and its opening target to each registered adapter. Each adapter resolves its own aliases and returns a main-process action or a local reply. The dispatcher manages overlapping launches, suppresses immediate repeats, and reports failures for both adapters.
-3. `Open Settings`, `Open Downloads or Documents`, and other recognized choices produce local clarification. File search and file operations receive a local reply offering folder navigation. Other unmatched requests, including `Show me how to open Bluetooth settings`, keep the existing guidance route. Native actions take priority over L1 and L2.
+1. Typed text goes straight into the assistant draft. For voice, the recorder converts audio to mono PCM WAV and sends it to local Whisper through `voice:transcribe`. The result fills the editable draft. Send invokes `goal:execute` for either input source. The main process validates the sender, input source and text before classification.
+2. `NativeActions` normalizes the request and passes the whole opening target to each adapter. An adapter resolves the complete destination against its own aliases. Settings accepts phrasing such as `Open the Wi-Fi settings page in Windows Settings`, `Show me the Display page`, and `Open Windows Settings to the Bluetooth page`. Explorer accepts a known folder in phrasing such as `Open File Explorer to my Documents folder`.
+3. `Open Settings`, `Open Downloads or Documents`, and other recognized choices produce local clarification. File search and file operations receive a local folder-browsing reply. Guidance runs when the router finds no supported direct action. The conversational response or floating visual widget displays the reason. Native actions take priority even when Standard visual guidance is enabled.
 4. On Windows, sending a supported request ends active guidance and invokes the selected adapter. The dispatcher suppresses an immediate repeat of the same successful action for two seconds. A rejected launch can be retried.
 
 | Adapter | Permissions | Launch and verification |
@@ -53,6 +53,10 @@ The Explorer adapter resolves known folders through Electron’s `app.getPath`. 
 | File Explorer | Standard desktop session and access to the selected local known folder | Electron launches the known folder. The helper checks for that exact location in Explorer without a screenshot and returns a status token. |
 
 A future adapter registers its own intent vocabulary, allowed actions, permission checks, execution and verification. The shared parser, IPC channel and launcher coordination stay the same.
+
+## Running build
+
+`npm start` runs Electron Vite preview, which builds the workspace before launch. Glint displays the running bundle fingerprint in **System Details → App Version and Build** and logs it at launch. When a launch finds a Glint tray process from this workspace and the bundle on disk has changed, the tray process restarts and reopens the assistant. Launching the same build reuses the process. A tray process from a version predating this check needs a one-time **Exit** before starting the new build.
 
 ## Security boundary
 
@@ -65,5 +69,7 @@ A future adapter registers its own intent vocabulary, allowed actions, permissio
 ## Git history
 
 `d7eb7e7` and the earlier reflog revision `014dc8b` contain generic Electron handlers that passed renderer-requested URLs to `shell.openExternal`. The checked-in guidance flow used Gemini instructions and later gained local UI Automation to locate targets and advance guidance. No `ms-settings:` catalog or natural-language direct Settings router was found in the available branches or reflog. `28210d4` removed the generic external-link handlers when it hardened renderer navigation and IPC. `736bd4d` added local Whisper and the shared typed/final-transcript submission. This implementation keeps those boundaries and uses Electron’s launcher only for main-owned Settings URIs.
+
+`190a249` introduced the allowlisted Settings launcher. `883d5d7` moved it behind the shared dispatcher alongside File Explorer while preserving native-first routing. A destination phrasing miss could still reach L2 in that build. The current parser handles the reproduced contextual phrasing without relaxing the allowlist.
 
 The local checkpoint `glint-before-native-navigation-20261121` points to `84dc7fb`.

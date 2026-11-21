@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { GoalInput } from '../shared/input'
+import type { FloatingProgress } from '../shared/guidance'
 import type { TranscriptionResult, VoiceLanguage, VoiceResult } from '../shared/voice'
 
 function subscribe<T>(channel: string, callback: (data: T) => void): () => void {
@@ -85,7 +86,7 @@ const glintAPI = {
   // Overlay communication
   onOverlayUpdate: (callback: (data: { rect: any; label: string }) => void) => subscribe('overlay:update', callback),
   onOverlayClear: (callback: () => void) => subscribe('overlay:clear', callback),
-  onFloatingUpdate: (callback: (data: { step: string; goal: string }) => void) => subscribe('floating:update', callback)
+  onFloatingUpdate: (callback: (data: FloatingProgress) => void) => subscribe('floating:update', callback)
 }
 
 contextBridge.exposeInMainWorld('glintAPI', glintAPI)

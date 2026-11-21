@@ -1,6 +1,7 @@
 import { app, screen } from 'electron'
 import { execFile } from 'node:child_process'
 import * as os from 'node:os'
+import { runningBuild } from './runtime-build'
 
 function queryWindows(command: string): Promise<string> {
   return new Promise(resolve => {
@@ -24,6 +25,7 @@ export async function getSystemInfo() {
     gpu: gpu.split(/\r?\n/).filter(Boolean).join(' / ') || 'Unavailable',
     screenResolution: Math.round(pixels.width * display.scaleFactor) + ' × ' + Math.round(pixels.height * display.scaleFactor),
     displayScaling: Math.round(display.scaleFactor * 100) + '%',
-    appVersion: app.getVersion()
+    appVersion: app.getVersion(),
+    appBuild: runningBuild?.slice(0, 12) ?? (process.env.ELECTRON_RENDERER_URL ? 'Development' : 'Unavailable')
   }
 }

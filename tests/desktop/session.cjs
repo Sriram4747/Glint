@@ -160,6 +160,7 @@ app.whenReady().then(async () => {
     assert.equal(info.computerName, os.hostname())
     assert.equal(info.cpu, os.cpus()[0].model)
     assert.equal(info.appVersion, app.getVersion())
+    assert.match(info.appBuild, /^[a-f0-9]{12}$/)
     const primary = screen.getPrimaryDisplay()
     assert.equal(info.displayScaling, Math.round(primary.scaleFactor * 100) + '%')
     assert.equal(info.ram, (os.totalmem() / 2 ** 30).toFixed(1) + ' GiB')
@@ -194,6 +195,7 @@ app.whenReady().then(async () => {
     }
     await type('Open Task Manager.')
     await until(() => run(assistant, 'document.querySelector(".response-text")?.innerText.includes("fixture instruction")'), 'visible L1 response')
+    assert.match(await run(assistant, 'document.querySelector(".response-text").innerText'), /No direct Windows action/)
     const en = requests.at(-1)
     const goal = (text, source, language) => api(assistant, 'executeGoalStep',
       source === 'voice' ? { text, source, language, final: true } : { text, source })
@@ -242,6 +244,7 @@ app.whenReady().then(async () => {
     assert.equal(start.success, true, start.error)
     const widget = await roleWindow('floating-assistant')
     await until(() => run(widget, 'document.body.innerText.includes("Select the fixture button")'), 'first widget instruction')
+    assert.equal(await run(widget, 'document.querySelector(".glint-floating-reason")?.innerText'), 'No direct Windows action matches this request.')
     const overlay = await roleWindow('overlay')
     await until(() => run(overlay, 'document.body.innerText.includes("Glint audit target")'), 'native UIA highlight')
     assert.equal(overlay.isFocusable(), false)

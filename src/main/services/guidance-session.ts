@@ -61,7 +61,7 @@ export class GuidanceSessionService {
   /**
    * Starts a visual guidance session with Local-First Hybrid Architecture.
    */
-  static async start(goal: string, apiKey: string, preferredModel = 'gemini-3.1-flash-lite'): Promise<void> {
+  static async start(goal: string, apiKey: string, fallbackReason: string, preferredModel = 'gemini-3.1-flash-lite'): Promise<void> {
     Logger.info('GuidanceSession: Starting visual guidance session')
     
     this.cancelAutoCheck()
@@ -86,7 +86,7 @@ export class GuidanceSessionService {
     // 1. Initialize floating assistant widget and overlay
     createFloatingAssistantWindow()
     showFloatingAssistantWindow()
-    updateFloatingAssistantProgress(`Generating guidance plan...`, goal)
+    updateFloatingAssistantProgress('Generating guidance plan...', goal, fallbackReason)
 
     // Hide main assistant window to focus on visual guidance
     const assistantWin = getAssistantWindow()
