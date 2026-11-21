@@ -79,7 +79,11 @@ if (navigation) {
 }
 let rejectModel = false
 global.fetch = async (_url, options) => {
-  requests.push(JSON.parse(options.body).contents[0].parts[0].text)
+  const body = JSON.parse(options.body)
+  if (body.systemInstruction) {
+    return Response.json({ candidates: [{ content: { parts: [{ text: '{"decision":{"stop":"guidance"}}' }] } }] })
+  }
+  requests.push(body.contents[0].parts[0].text)
   if (rejectModel) return new Response('', { status: 403 })
   const answer = {
     nextStep: 'Open Bluetooth & devices in Windows Settings.', targetLabel: 'Bluetooth & devices', goalCompleted: false
@@ -197,8 +201,9 @@ app.whenReady().then(async () => {
     }
     const submitted = await run('document.querySelector("input").value')
     await run('document.querySelector(".send-btn").click(); document.querySelector(".send-btn").click()')
-    await until(() => run(`document.querySelector('.response-text')?.textContent.includes('Asked Windows to open ${target}')`),
-      `launch response for ${target}`)
+    const response = await until(() => run('document.querySelector(".response-text, .analysis-error")?.textContent'),
+      `navigation response for ${target}`, 22000)
+    assert.ok(response.includes(`${target} is open in Windows Settings`), `Submitted "${submitted}": ${response}`)
     assert.deepEqual(launches, [uri])
     assert.equal(requests.length, 0)
     console.log(`PASS ${language} ${audioSource} / native launch ${uri}`)

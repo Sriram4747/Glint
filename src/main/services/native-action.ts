@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto'
+import { auditAutomation } from './automation-audit'
+import { WindowsActionError } from './windows-shell'
+
 export interface NativeRequest {
   text: string
   openTarget?: string
@@ -10,7 +14,7 @@ export interface NativeAction {
 }
 
 export type NativeIntent = { kind: 'open'; action: NativeAction } | { kind: 'reply'; text: string }
-type NativeResolution = NativeIntent | { kind: 'unavailable'; reason: string }
+type NativeResolution = NativeIntent | { kind: 'unavailable'; openTarget?: string }
 
 export interface NativeAdapter {
   resolve(request: NativeRequest): NativeIntent | undefined
@@ -33,6 +37,8 @@ export class NativeActions {
 
   constructor(private readonly adapters: readonly NativeAdapter[]) {}
 
+  get busy() { return this.pending !== undefined }
+
   resolve(goal: string): NativeResolution {
     const text = normalizeRequest(goal).replace(/[.!?]+$/u, '').trim()
       .replace(/^(?:(?:hey|ok|okay) )?glint,? /u, '')
@@ -43,12 +49,7 @@ export class NativeActions {
       const intent = adapter.resolve({ text, openTarget })
       if (intent) return intent
     }
-    return {
-      kind: 'unavailable',
-      reason: openTarget && !/^how to /u.test(openTarget)
-        ? 'No direct Windows action matches that destination.'
-        : 'No direct Windows action matches this request.'
-    }
+    return { kind: 'unavailable', openTarget }
   }
 
   async execute(action: NativeAction) {
@@ -59,16 +60,21 @@ export class NativeActions {
       return { success: false, error: 'Wait for the current Windows request, then try again.' }
     }
     if (this.lastLaunch?.id === action.id && performance.now() - this.lastLaunch.time < REPEAT_WINDOW_MS) {
-      return { success: true, text: `A request to open ${action.target} was already sent.` }
+      return { success: true, text: `Glint already verified ${action.target}.` }
     }
 
     this.pending = action.id
+    const run = randomUUID()
+    auditAutomation(run, action.id, 'planned')
+    auditAutomation(run, action.id, 'attempted')
     try {
       const text = await action.execute()
       this.lastLaunch = { id: action.id, time: performance.now() }
+      auditAutomation(run, action.id, 'verified')
       return { success: true, text }
-    } catch {
-      return { success: false, error: `Windows could not open ${action.target}. Try again or open it manually.` }
+    } catch (error) {
+      auditAutomation(run, action.id, 'failed')
+      return { success: false, error: error instanceof WindowsActionError ? error.message : `Windows could not open ${action.target}.` }
     } finally {
       this.pending = undefined
     }

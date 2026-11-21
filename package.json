@@ -8,7 +8,10 @@
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test:desktop": "node tests/desktop/run.cjs",
+    "test:planner": "node --test tests/planner-decision.test.cjs",
     "test:navigation": "node tests/desktop/navigation.cjs",
+    "test:automation": "node tests/desktop/navigation.cjs --agent",
+    "test:automation:windows": "node tests/desktop/navigation.cjs --agent-live",
     "setup:voice": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-voice.ps1",
     "preview": "electron-vite preview",
     "start": "electron-vite preview"

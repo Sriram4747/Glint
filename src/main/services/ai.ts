@@ -37,6 +37,17 @@ export interface AIGoalPlanResult {
 }
 
 export class AIService {
+  static async planWindowsAction(
+    instructions: string, input: unknown, schema: object, apiKey: string, model: string | undefined, signal: AbortSignal
+  ): Promise<unknown> {
+    const text = await this.executeWithFallback({
+      systemInstruction: { parts: [{ text: instructions }] },
+      contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
+      generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, temperature: 0 }
+    }, apiKey, model, signal)
+    return JSON.parse(text)?.decision
+  }
+
   // Verified active model cascade (3.1 & 3.5 Flash Lite series - high RPM, fast vision response)
   private static readonly FALLBACK_MODELS = [
     'gemini-3.1-flash-lite',

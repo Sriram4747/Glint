@@ -1,6 +1,8 @@
 import { shell } from 'electron'
 import { normalizeRequest, type NativeAdapter } from './native-action'
-import { settingsDestinations, type SettingsDestination } from './settings-destinations'
+import { settingsDestinations, settingsHeadings, type SettingsDestination } from './settings-destinations'
+import { Logger } from './logger'
+import { waitForShell, WindowsActionError, windowsScript } from './windows-shell'
 
 const pageNames = new Map<string, SettingsDestination>()
 for (const [destination, page] of Object.entries(settingsDestinations)) {
@@ -31,12 +33,43 @@ function clarify(choices: SettingsDestination[]) {
   return { kind: 'reply' as const, text: `Which Windows Settings page should I open?${options} Try “Open ${example} settings.”` }
 }
 
+export async function openSettings(destination: SettingsDestination, signal?: AbortSignal) {
+  const { uri, label } = settingsDestinations[destination]
+  const variables = {
+    GLINT_SETTINGS_URI: uri,
+    GLINT_SETTINGS_HEADINGS: JSON.stringify(settingsHeadings(destination)),
+    GLINT_SETTINGS_HOME: destination === 'home' ? '1' : '0'
+  }
+  let lastStatus = 'launch-failed'
+  for (const route of ['electron-shell', 'windows-shell']) {
+    signal?.throwIfAborted()
+    Logger.info('Settings navigation attempted', { destination, route })
+    try {
+      if (route === 'electron-shell') await waitForShell(shell.openExternal(uri, { activate: true }), signal)
+      const status = await windowsScript('verify-settings.ps1', {
+        ...variables, GLINT_SETTINGS_RETRY: route === 'windows-shell' ? '1' : '0'
+      }, { signal })
+      lastStatus = status
+      Logger.info('Settings observation', { destination, route, status })
+      if (status === 'verified') {
+        return destination === 'home' ? 'Windows Settings is open.' : `${label} is open in Windows Settings.`
+      }
+    } catch {
+      signal?.throwIfAborted()
+      lastStatus = 'verification-unavailable'
+      Logger.warn('Settings route failed', { destination, route })
+    }
+  }
+  const reason = lastStatus === 'unresponsive' ? 'Settings is unresponsive.' :
+    lastStatus === 'wrong-page' ? 'Settings opened, but the requested page could not be verified.' :
+      'Glint could not verify that Windows Settings opened.'
+  throw new WindowsActionError(destination === 'home' ? reason : `${reason} Requested page: ${label}.`)
+}
+
 export const settingsAdapter: NativeAdapter = {
   resolve({ openTarget }) {
     if (!openTarget) return
-    if (settingsOnly.test(openTarget)) return clarify([])
-
-    const destination = resolvePage(openTarget)
+    const destination = settingsOnly.test(openTarget) ? 'home' : resolvePage(openTarget)
     if (destination) {
       const page = settingsDestinations[destination]
       return {
@@ -44,10 +77,7 @@ export const settingsAdapter: NativeAdapter = {
         action: {
           id: `settings:${destination}`,
           target: `${page.label} in Windows Settings`,
-          async execute() {
-            await shell.openExternal(page.uri)
-            return `Asked Windows to open ${page.label}. Check the Settings window for the page.`
-          }
+          execute: () => openSettings(destination)
         }
       }
     }

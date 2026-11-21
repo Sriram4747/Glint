@@ -2,6 +2,7 @@
 # value for This PC. Observes Explorer and emits a fixed verification token.
 $ErrorActionPreference = 'Stop'
 $path = $env:GLINT_EXPLORER_FOLDER
+$item = $env:GLINT_EXPLORER_ITEM
 $shell = New-Object -ComObject Shell.Application
 if ([string]::IsNullOrEmpty($path)) {
     $destination = 0x11 # ssfDRIVES (This PC)
@@ -19,6 +20,10 @@ do {
             try {
                 if ([IO.Path]::GetFileName([string]$window.FullName) -ieq 'explorer.exe' -and
                     [string]$window.Document.Folder.Self.Path -ieq $expectedPath) {
+                    if ($item) {
+                        $selected = @($window.Document.SelectedItems() | ForEach-Object { [string]$_.Path })
+                        if ($selected -inotcontains $item) { continue }
+                    }
                     'verified'
                     exit 0
                 }

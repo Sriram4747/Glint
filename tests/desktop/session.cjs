@@ -47,7 +47,11 @@ app.on('web-contents-created', (_, contents) => {
   contents.on('render-process-gone', (_, details) => ipcErrors.push(details.reason))
 })
 global.fetch = async (_url, options) => {
-  const prompt = JSON.parse(options.body).contents[0].parts[0].text
+  const body = JSON.parse(options.body)
+  if (body.systemInstruction) {
+    return Response.json({ candidates: [{ content: { parts: [{ text: '{"decision":{"stop":"guidance"}}' }] } }] })
+  }
+  const prompt = body.contents[0].parts[0].text
   requests.push(prompt)
   if (mode === 'hold') {
     pending = true
@@ -70,7 +74,7 @@ const execFile = childProcess.execFile
 childProcess.execFile = function (file, args, options, callback) {
   if (!args.some(arg => arg.endsWith('find-control.ps1'))) return execFile.apply(this, arguments)
   return execFile(file, args, options, (error, stdout, stderr) => {
-    if (error || JSON.parse(stdout).found || !fs.existsSync(join(profile, 'fixture-handle'))) {
+    if (!fs.existsSync(join(profile, 'fixture-handle')) || (!error && stdout && JSON.parse(stdout).found)) {
       callback(error, stdout, stderr)
       return
     }
@@ -195,7 +199,7 @@ app.whenReady().then(async () => {
     }
     await type('Open Task Manager.')
     await until(() => run(assistant, 'document.querySelector(".response-text")?.innerText.includes("fixture instruction")'), 'visible L1 response')
-    assert.match(await run(assistant, 'document.querySelector(".response-text").innerText'), /No direct Windows action/)
+    assert.match(await run(assistant, 'document.querySelector(".response-text").innerText'), /This request asks for instructions/)
     const en = requests.at(-1)
     const goal = (text, source, language) => api(assistant, 'executeGoalStep',
       source === 'voice' ? { text, source, language, final: true } : { text, source })
@@ -244,7 +248,7 @@ app.whenReady().then(async () => {
     assert.equal(start.success, true, start.error)
     const widget = await roleWindow('floating-assistant')
     await until(() => run(widget, 'document.body.innerText.includes("Select the fixture button")'), 'first widget instruction')
-    assert.equal(await run(widget, 'document.querySelector(".glint-floating-reason")?.innerText'), 'No direct Windows action matches this request.')
+    assert.equal(await run(widget, 'document.querySelector(".glint-floating-reason")?.innerText'), 'This request asks for instructions.')
     const overlay = await roleWindow('overlay')
     await until(() => run(overlay, 'document.body.innerText.includes("Glint audit target")'), 'native UIA highlight')
     assert.equal(overlay.isFocusable(), false)
@@ -267,7 +271,7 @@ app.whenReady().then(async () => {
     const point = other && screen.dipToScreenPoint({ x: other.bounds.x + 80, y: other.bounds.y + 80 })
     fs.writeFileSync(join(profile, 'fixture-click'), JSON.stringify(point || null))
     await until(() => run(widget, 'document.body.innerText.includes("Check the result")'), 'UIA progression', 16000)
-    await until(() => run(overlay, 'document.querySelector(".glint-target-text")?.innerText === "Glint audit result"'), 'second highlight')
+    await until(() => run(overlay, 'document.querySelector(".glint-target-text")?.innerText === "Glint audit result"'), 'second highlight', 16000)
     if (screen.getAllDisplays().length > 1) {
       const target = await run(overlay, 'document.querySelector(".glint-overlay-highlight").getBoundingClientRect().toJSON()')
       const bounds = overlay.getBounds()

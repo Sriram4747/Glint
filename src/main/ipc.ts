@@ -12,6 +12,7 @@ import { getSystemInfo } from './services/system-info'
 import { NativeActions } from './services/native-action'
 import { settingsAdapter } from './services/settings-adapter'
 import { explorerAdapter } from './services/explorer-adapter'
+import { WindowsAgent } from './services/windows-agent'
 import { cancelVoice, prepareVoice, transcribeVoice } from './services/voice'
 import { resolveGoalInput } from '../shared/input'
 import { join } from 'node:path'
@@ -57,6 +58,7 @@ function checkSender(event: IpcMainInvokeEvent | IpcMainEvent, roles: string[]):
 export function registerIPC(): void {
   const settings = new SettingsStore()
   const nativeActions = new NativeActions([settingsAdapter, explorerAdapter])
+  const windowsAgent = new WindowsAgent()
   const assistant = ['assistant']
   const controls = ['assistant', 'floating-assistant']
   const windows = [...controls, 'settings', 'system-details']
@@ -101,18 +103,31 @@ export function registerIPC(): void {
     const explain = (message: string) => fallbackReason ? `${fallbackReason} ${message}` : message
     try {
       const goal = resolveGoalInput(input)
+      if (windowsAgent.busy) return { success: false, error: 'Wait for the current Windows request, then try again.' }
       const intent = nativeActions.resolve(goal)
-      if (intent.kind === 'reply') return { success: true, text: intent.text }
+      if (intent.kind === 'reply') {
+        windowsAgent.cancel()
+        return { success: true, text: intent.text }
+      }
       if (intent.kind === 'open') {
         if (process.platform !== 'win32') {
           return { success: false, error: 'This direct action is only available on Windows.' }
         }
-        clearGuidance()
-        return await nativeActions.execute(intent.action)
+        windowsAgent.cancel()
+        if (!nativeActions.busy) clearGuidance()
+        return nativeActions.execute(intent.action)
       }
-      fallbackReason = intent.reason
+      if (nativeActions.busy) return { success: false, error: 'Wait for the current Windows request, then try again.' }
       const { key, visual, model } = settings.guidance()
-      if (!key) return { success: false, error: explain('Add a Gemini API key in Settings to start guidance.') }
+      if (process.platform === 'win32') {
+        clearGuidance()
+        const automation = await windowsAgent.execute(goal, intent.openTarget, key, model)
+        if (!('fallback' in automation)) return automation
+        fallbackReason = automation.fallback
+      } else {
+        fallbackReason = 'Windows automation is available only on Windows.'
+      }
+      if (!key) return { success: false, error: fallbackReason }
       if (visual) {
         GoalService.clearSession()
         await GuidanceSessionService.start(goal, key, fallbackReason, model)
@@ -130,7 +145,10 @@ export function registerIPC(): void {
       return { success: false, error: explain(error instanceof Error ? error.message : 'Guidance failed.') }
     }
   })
-  handle('goal:clear', controls, clearGuidance)
+  handle('goal:clear', controls, () => {
+    windowsAgent.cancel()
+    clearGuidance()
+  })
 
   handle('goal:get-session', controls, async () => {
     if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) {

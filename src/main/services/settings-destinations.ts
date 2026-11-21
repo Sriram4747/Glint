@@ -1,6 +1,10 @@
 // Settings pages opened and inspected on Windows 11. Each URI is owned by main.
 // https://learn.microsoft.com/en-us/windows/apps/develop/launch/launch-settings
 export const settingsDestinations = {
+  home: {
+    label: 'Windows Settings', uri: 'ms-settings:',
+    aliases: ['settings', 'settings app', 'windows settings home', 'அமைப்புகள்']
+  },
   wifi: {
     label: 'Wi-Fi', uri: 'ms-settings:network-wifi',
     aliases: ['wifi', 'wi fi', 'wireless network', 'வைஃபை', 'வை-ஃபை', 'வை ஃபை', 'வைபை']
@@ -84,3 +88,15 @@ export const settingsDestinations = {
 } as const
 
 export type SettingsDestination = keyof typeof settingsDestinations
+
+// UI Automation exposes the displayed page heading, which can differ from the route label.
+export function settingsHeadings(destination: SettingsDestination): readonly string[] {
+  switch (destination) {
+    case 'home': return ['Home', 'Settings', 'அமைப்புகள்', 'முகப்பு']
+    case 'bluetooth': return ['Devices', 'Bluetooth & devices', 'சாதனங்கள்', 'புளூடூத் & சாதனங்கள்']
+    case 'aboutPc': return ['About', 'பற்றி']
+    case 'microphonePrivacy': return ['Microphone', 'மைக்ரோஃபோன்', 'ஒலிவாங்கி']
+    case 'startupApps': return ['Startup', 'தொடக்கம்']
+    default: return [settingsDestinations[destination].label, ...settingsDestinations[destination].aliases]
+  }
+}

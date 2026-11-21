@@ -1,6 +1,6 @@
 # Native Windows navigation
 
-Glint opens Windows Settings pages and File Explorer folders locally from the assistant’s input box. Type a request or record in English or Tamil, review the editable transcript, then press **Send** or **Enter**. Reopen Glint from its tray menu to see its response after the destination takes focus.
+Glint navigates Windows and searches personal folders from the assistant’s input box. Type a request or record in English or Tamil, review the editable transcript, then press **Send** or **Enter**. Reopen Glint from its tray menu to see its response after the destination takes focus.
 
 ## Supported destinations
 
@@ -8,6 +8,7 @@ The headings below were observed on Windows 11 26H2, build 26300.9974. The URI d
 
 | Destination | URI | Observed Windows heading |
 | --- | --- | --- |
+| Windows Settings | `ms-settings:` | Settings window |
 | Wi-Fi | `ms-settings:network-wifi` | Network & internet › Wi-Fi |
 | Bluetooth | `ms-settings:bluetooth` | Bluetooth & devices › Devices |
 | Display | `ms-settings:display` | System › Display |
@@ -38,21 +39,24 @@ The headings below were observed on Windows 11 26H2, build 26300.9974. The URI d
 | Open Documents | `Show me my Documents.` | Current user’s Documents |
 | Open Pictures | `படங்கள் கோப்புறையைத் திறக்கவும்.` | Current user’s Pictures |
 
-The Explorer adapter resolves known folders through Electron’s `app.getPath`. It checks that the destination is a directory and dispatches it with `shell.openPath`. This PC uses a fixed Shell namespace destination. A read-only helper checks the folder identity of open Explorer views against the resolved location. Glint confirms an exact match or reports that Windows received the request. A missing folder or explicit launch failure produces a retryable error. [Electron special directories](https://www.electronjs.org/docs/latest/api/app/#appgetpathname) · [Electron Shell launch](https://www.electronjs.org/docs/latest/api/shell/) · [Windows Shell folder identity](https://learn.microsoft.com/en-us/windows/win32/shell/folderitem-path)
+Explorer supports named personal folders, file metadata search and opening a found item’s containing folder. Search uses local Desktop, Documents, Downloads, Pictures, Videos, and Music paths. Folder-name searches also inspect nearby directories in the user’s profile. Windows resolves Captures and Screenshots through its known-folder API, including local redirections. The scan has time, depth and entry limits and skips symlinks and hidden or system locations. A search can return several candidates and ask the user to select one by number. The Explorer helper checks the actual folder and, for a reveal request, the selected item. [Electron special directories](https://www.electronjs.org/docs/latest/api/app/#appgetpathname) · [Windows known-folder API](https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-shgetknownfolderpath) · [Windows Shell folder identity](https://learn.microsoft.com/en-us/windows/win32/shell/folderitem-path)
 
 ## Routing and execution
 
 1. Typed text goes straight into the assistant draft. For voice, the recorder converts audio to mono PCM WAV and sends it to local Whisper through `voice:transcribe`. The result fills the editable draft. Send invokes `goal:execute` for either input source. The main process validates the sender, input source and text before classification.
-2. `NativeActions` normalizes the request and passes the whole opening target to each adapter. An adapter resolves the complete destination against its own aliases. Settings accepts phrasing such as `Open the Wi-Fi settings page in Windows Settings`, `Show me the Display page`, and `Open Windows Settings to the Bluetooth page`. Explorer accepts a known folder in phrasing such as `Open File Explorer to my Documents folder`.
-3. `Open Settings`, `Open Downloads or Documents`, and other recognized choices produce local clarification. File search and file operations receive a local folder-browsing reply. Guidance runs when the router finds no supported direct action. The conversational response or floating visual widget displays the reason. Native actions take priority even when Standard visual guidance is enabled.
-4. On Windows, sending a supported request ends active guidance and invokes the selected adapter. The dispatcher suppresses an immediate repeat of the same successful action for two seconds. A rejected launch can be retried.
+2. `NativeActions` recognizes exact Settings and known-folder requests and executes them without a model. `Open Settings` opens the app. Explicit choices such as `Open Downloads or Documents` produce a clarification. The dispatcher suppresses an immediate repeat of a verified action for two seconds.
+3. For unfamiliar requests, the configured Gemini model receives the goal, tool descriptions and observations. It proposes one validated tool call at a time and can change its plan after a failure. File and UI references come from Glint’s observations for the current request. The planner receives references and relevant metadata. Local paths, file contents, window titles and screenshots stay on the device during automation. The automation run is bounded to nine planner turns and 65 seconds. A local folder-name search is also available without a configured key.
+4. Glint builds completion messages from observed tool outcomes. If automation cannot complete the goal and guidance is available, Glint reports the reason and uses the configured guidance mode. The execution trace is in `automation-audit.jsonl` in Glint’s user-data directory. It records tool names and statuses with no prompts, local paths or file contents.
 
-| Adapter | Permissions | Launch and verification |
+| Tool | Input | Outcome and constraints |
 | --- | --- | --- |
-| Windows Settings | Standard desktop session and Windows access to the page | Electron opens a static `ms-settings:` URI from the catalog. Glint reports dispatch. Desktop checks verify the heading separately because Windows may accept a URI that policy or hardware prevents it from displaying. |
-| File Explorer | Standard desktop session and access to the selected local known folder | Electron launches the known folder. The helper checks for that exact location in Explorer without a screenshot and returns a status token. |
-
-A future adapter registers its own intent vocabulary, allowed actions, permission checks, execution and verification. The shared parser, IPC channel and launcher coordination stay the same.
+| `settings` | Catalog ID | Opens an app-owned Settings URI. Windows UI Automation checks the visible page heading or the Settings window for a bare app request. A second Shell launch is attempted after a launch or verification failure. |
+| `search` | Name clue, file type, optional scopes, sort order and date filter | Finds candidates from directory names and file metadata. Returns request-scoped references, rank, size, timestamps and search limits. |
+| `locate` | Exact absolute location provided in the request | Resolves an existing local file or folder inside an approved personal folder. |
+| `explore` | Observed file/folder ID or This PC, navigation mode | Opens the folder, opens the containing folder, or reveals a file. Glint checks Explorer’s actual folder or selected item. |
+| `show` | Observed file/folder IDs | Displays local results with names and metadata. |
+| `findWindow`, `focusWindow` | Application/title clue followed by an observed ID | Discovers open windows and verifies that Windows brought the selected window to the foreground. |
+| `findExplorerTabs`, `selectExplorerTab` | Tab name clue followed by an observed ID | Discovers accessible File Explorer tabs, selects one using UI Automation and verifies that it is selected. |
 
 ## Running build
 
@@ -61,10 +65,13 @@ A future adapter registers its own intent vocabulary, allowed actions, permissio
 ## Security boundary
 
 - `goal:execute` remains restricted to the registered assistant window’s trusted main frame. The preload exposes goal submission with the existing context isolation, sandbox and window navigation restrictions.
-- The Settings adapter resolves a destination defined in `settings-destinations.ts` and sends its static URI to Electron’s `shell.openExternal`.
-- Explorer accepts only app-owned destination identifiers. It opens the current user’s OS-resolved directory and accepts redirected local folders. Drive roots, UNC paths, absolute paths supplied by the user, and relative paths are outside the allowlist. The helper receives the directory as data through a process environment variable and returns only a status token.
-- Native navigation and recognized file-related replies need no Gemini key, screen capture, network model call or elevation. Explorer reads the location needed for verification. It does not enumerate, inspect or send files or file lists.
-- The native capabilities open pages and folders. They do not change Windows preferences or perform file operations. Individual-file lookup and launching are deferred. A future file launcher should present ambiguous matches for selection and require confirmation of the exact file before launch.
+- Tool names, enum values and arguments are validated in the main process. The model uses request-local references to select local results. PowerShell runs fixed scripts with arguments passed as data using Windows’ existing execution policy.
+- The automation registry allows ordinary navigation and read-only inspection. Changing Windows preferences, launching an arbitrary executable or document, moving or deleting data, and sending anything outside the device are outside the registry. Revealing a file selects it in Explorer.
+- Windows settings availability and UI Automation depend on OS version, display language, hardware and policy. A blocked, missing or unverified page is reported as a failed outcome.
+
+## Validation commands
+
+Run `npm run build` before the Electron suites. `npm run test:planner` checks structured decision validation. `npm run test:navigation` exercises native input and IPC. `npm run test:automation` covers the planner loop with model and Windows launch fixtures, and reads test files from an isolated profile. `npm run test:automation:windows` uses the real Settings and Explorer launchers and verifiers on the interactive Windows desktop, with a deterministic model fixture. To also exercise Gemini with synthetic requests, run `node tests/desktop/navigation.cjs --provider-live` with a configured project `.env`.
 
 ## Git history
 

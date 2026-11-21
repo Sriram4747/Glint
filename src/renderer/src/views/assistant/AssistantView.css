@@ -255,6 +255,8 @@
 }
 
 .response-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   color: rgba(255, 255, 255, 0.9);
 }
 
