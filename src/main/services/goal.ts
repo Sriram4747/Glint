@@ -28,6 +28,8 @@ export class GoalService {
     appContext: null
   }
 
+  private static generation = 0
+  private static request?: AbortController
   private static history: GoalSession[] = []
   private static inactivityTimeout: NodeJS.Timeout | null = null
   private static snoozeTimeout: NodeJS.Timeout | null = null
@@ -42,11 +44,9 @@ export class GoalService {
   }
 
   static updateSession(updates: Partial<GoalSession>): void {
-    const prevState = this.session.state
     this.session = { ...this.session, ...updates, timestamp: Date.now() }
     
     Logger.info('Goal session updated:', {
-      currentGoal: this.session.currentGoal,
       state: this.session.state,
       historyLength: this.session.conversationHistory.length
     })
@@ -58,6 +58,8 @@ export class GoalService {
   }
 
   static clearSession(): void {
+    this.request?.abort()
+    this.generation++
     this.archiveCurrentGoal()
     this.session = {
       id: Math.random().toString(36).substring(7),
@@ -77,14 +79,18 @@ export class GoalService {
     if (this.session.currentGoal) {
       const archivedSession: GoalSession = {
         ...this.session,
+        latestScreenshot: null,
         state: this.session.state === 'Completed' ? 'Completed' : 'Archived'
       }
       this.history.push(archivedSession)
-      Logger.info(`Goal archived to history: "${archivedSession.currentGoal}" in state: ${archivedSession.state}`)
+      if (this.history.length > 50) this.history.shift()
+      Logger.info('Goal archived')
     }
   }
 
   static markCompleted(): void {
+    this.request?.abort()
+    this.generation++
     if (this.session.currentGoal) {
       this.session.state = 'Completed'
       this.archiveCurrentGoal()
@@ -109,35 +115,21 @@ export class GoalService {
   static async executeGoalStep(
     goal: string,
     apiKey: string,
-    preferredModel = 'gemini-2.0-flash'
+    preferredModel = 'gemini-3.1-flash-lite'
   ): Promise<AIAnalysisResult> {
     try {
       this.resetInactivityTimer()
-      Logger.info(`Executing goal step for goal: "${goal}" using model: "${preferredModel}"`)
-
-      // Temporarily hide the assistant window so it is not captured in the screenshot
-      const win = this.getAssistantWindow()
-      let wasVisible = false
-      if (win && !win.isDestroyed() && win.isVisible()) {
-        wasVisible = true
-        win.hide()
-        // Wait 150ms to ensure the window manager completely removes it from the screen
-        await new Promise((resolve) => setTimeout(resolve, 150))
-      }
-      
-      // 1. Capture screen
+      this.request?.abort()
+      this.request = new AbortController()
+      const generation = ++this.generation
       const captureResult = await CaptureService.capture()
+      if (generation !== this.generation) return { success: false, error: 'Goal cancelled.' }
 
-      // Restore the assistant window immediately after the capture completes
-      if (win && !win.isDestroyed() && wasVisible) {
-        win.show()
-        win.focus()
-        win.webContents.send('window:shown')
-      }
-      
       // 2. Analyze screen using AIService
-      const result = await AIService.analyzeInitial(goal, captureResult.image, apiKey, preferredModel)
+      const result = await AIService.analyzeInitial(goal, captureResult.image, apiKey, preferredModel, this.request.signal)
       
+      if (generation !== this.generation) return { success: false, error: 'Goal cancelled.' }
+      if (result.success && result.data?.goalCompleted && !result.data.nextStep) result.data.nextStep = 'Goal completed.'
       const responseText = result.data?.nextStep || ''
       if (result.success && responseText) {
         // Update session
@@ -190,7 +182,7 @@ export class GoalService {
     if (this.session.state !== 'Active') return
     
     this.session.state = 'Idle'
-    Logger.warn(`Goal transitioned to Idle due to inactivity: "${this.session.currentGoal}"`)
+    Logger.info('Goal idle')
     
     // Hide the floating assistant window
     this.hideAssistantWindow()
@@ -202,6 +194,7 @@ export class GoalService {
   private static showIdleNotification(): void {
     if (!this.session.currentGoal) return
 
+    const session = this.session
     const notification = new Notification({
       title: 'Glint',
       body: `Need help continuing your goal?\nGoal: ${this.session.currentGoal}`,
@@ -214,6 +207,7 @@ export class GoalService {
     })
 
     notification.on('action', (_event, index) => {
+      if (session !== this.session || this.session.state !== 'Idle') return
       Logger.info(`Notification action clicked: index ${index}`)
       if (index === 0) {
         this.resumeFromIdle()
@@ -226,6 +220,7 @@ export class GoalService {
 
     // Standard click acts as Continue
     notification.on('click', () => {
+      if (session !== this.session || this.session.state !== 'Idle') return
       Logger.info('Notification body clicked - resuming goal')
       this.resumeFromIdle()
     })
@@ -249,6 +244,11 @@ export class GoalService {
   }
 
   static snoozeGoal(): void {
+    this.request?.abort()
+    this.generation++
+    if (!this.session.currentGoal) return
+    this.clearInactivityTimer()
+    this.session.state = 'Idle'
     Logger.info('Goal reminder snoozed')
     // Set a snooze timer to remind the user again in 2 minutes if still Idle
     this.snoozeTimeout = setTimeout(() => {

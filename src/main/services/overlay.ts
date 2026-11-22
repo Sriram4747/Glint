@@ -13,33 +13,21 @@ export class OverlayService {
       return null
     }
 
-    const overlayBounds = win.getBounds()
-    const targetDisplay = screen.getAllDisplays().find((display) => {
-      const scaleFactor = display.scaleFactor || 1
-      const physicalBounds = {
-        x: display.bounds.x * scaleFactor,
-        y: display.bounds.y * scaleFactor,
-        width: display.bounds.width * scaleFactor,
-        height: display.bounds.height * scaleFactor
-      }
-
-      return (
-        rect.x >= physicalBounds.x &&
-        rect.y >= physicalBounds.y &&
-        rect.x < physicalBounds.x + physicalBounds.width &&
-        rect.y < physicalBounds.y + physicalBounds.height
-      )
-    }) || screen.getDisplayNearestPoint({ x: rect.x, y: rect.y })
-    const scaleFactor = targetDisplay.scaleFactor || 1
-    const displayBounds = targetDisplay.bounds
-
-    // UIA rectangles are physical pixels; Electron window bounds are DIP.
-    const desktopRect: Rectangle = {
-      x: displayBounds.x + ((rect.x - displayBounds.x * scaleFactor) / scaleFactor),
-      y: displayBounds.y + ((rect.y - displayBounds.y * scaleFactor) / scaleFactor),
-      width: rect.width / scaleFactor,
-      height: rect.height / scaleFactor
+    if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) {
+      return null
     }
+    const center = screen.screenToDipPoint({
+      x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2)
+    })
+    const display = screen.getDisplayNearestPoint(center)
+    const bounds = display.bounds
+    const previous = win.getBounds()
+    if (previous.x !== bounds.x || previous.y !== bounds.y ||
+        previous.width !== bounds.width || previous.height !== bounds.height) {
+      win.setBounds(bounds)
+    }
+    const overlayBounds = win.getBounds()
+    const desktopRect = screen.screenToDipRect(win, rect)
 
     const localRect: Rectangle = {
       x: Math.round(desktopRect.x - overlayBounds.x),
@@ -79,12 +67,12 @@ export class OverlayService {
 
     const localRect = this.normalizeToOverlayBounds(rect)
     if (!localRect) {
-      Logger.warn(`OverlayService: Refusing to highlight invalid/off-screen rectangle for "${label}": ${JSON.stringify(rect)}`)
+      Logger.warn('OverlayService: Refusing to highlight invalid/off-screen rectangle')
       this.clear()
       return false
     }
 
-    Logger.info(`OverlayService: Highlighting label "${label}" [${actionType}] at UIA=${JSON.stringify(rect)} OverlayLocal=${JSON.stringify(localRect)}`)
+    Logger.info('OverlayService: Highlighting label')
     this.currentHighlight = { rect: localRect, label, actionType }
 
     showOverlayWindow()
@@ -93,7 +81,7 @@ export class OverlayService {
     // so that the React component's IPC listener is registered before the message arrives
     const sendUpdate = (): void => {
       const w = getOverlayWindow()
-      if (w && !w.isDestroyed()) {
+      if (w === win && w && !w.isDestroyed() && this.currentHighlight?.rect === localRect) {
         w.webContents.send('overlay:update', { rect: localRect, label, actionType })
       }
     }

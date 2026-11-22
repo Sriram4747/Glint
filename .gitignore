@@ -1,5 +1,22 @@
 node_modules/
 out/
 dist/
-.env
 *.log
+/resources/whisper/
+/Glint.exe
+
+# Local credentials and hosted release access
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+.npmrc
+.wrangler/
+*.key
+*.pem
+*.pfx
+*.p12
+client_secret*.json
+service-account*.json
+/credentials.json
+/.glint-release/

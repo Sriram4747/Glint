@@ -1,5 +1,6 @@
 import { Logger } from './logger'
 import { PromptService } from './prompt'
+import { bundledRelay, requestGeminiRelay } from './gemini-relay'
 
 export type ActionType = 'click' | 'right_click' | 'double_click' | 'scroll' | 'type'
 
@@ -37,6 +38,17 @@ export interface AIGoalPlanResult {
 }
 
 export class AIService {
+  static async planWindowsAction(
+    instructions: string, input: unknown, schema: object, apiKey: string, model: string | undefined, signal: AbortSignal
+  ): Promise<unknown> {
+    const text = await this.executeWithFallback({
+      systemInstruction: { parts: [{ text: instructions }] },
+      contents: [{ role: 'user', parts: [{ text: JSON.stringify(input) }] }],
+      generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema, temperature: 0 }
+    }, apiKey, model, signal)
+    return JSON.parse(text)?.decision
+  }
+
   // Verified active model cascade (3.1 & 3.5 Flash Lite series - high RPM, fast vision response)
   private static readonly FALLBACK_MODELS = [
     'gemini-3.1-flash-lite',
@@ -77,7 +89,9 @@ export class AIService {
     try {
       const parsed = JSON.parse(cleanText)
       
-      if (typeof parsed.nextStep !== 'string' || typeof parsed.targetLabel !== 'string' || typeof parsed.goalCompleted !== 'boolean') {
+      if (typeof parsed.nextStep !== 'string' || typeof parsed.targetLabel !== 'string' || typeof parsed.goalCompleted !== 'boolean' ||
+          (!parsed.goalCompleted && !parsed.nextStep.trim()) ||
+          (parsed.previousStepCompleted !== undefined && typeof parsed.previousStepCompleted !== 'boolean')) {
         throw new Error('Required JSON contract keys (nextStep, targetLabel, goalCompleted) are missing or invalid type.')
       }
 
@@ -90,8 +104,8 @@ export class AIService {
         reason: parsed.reason
       }
     } catch (err: any) {
-      Logger.error('JSON parsing failed for AI response text:', cleanText)
-      throw new Error(`Failed to validate response contract: ${err.message}`)
+      Logger.error('JSON parsing failed for AI response text:')
+      throw new Error('Invalid response contract from provider.')
     }
   }
 
@@ -133,8 +147,8 @@ export class AIService {
         steps
       }
     } catch (err: any) {
-      Logger.error('JSON parsing failed for Goal Plan text:', cleanText)
-      throw new Error(`Failed to validate goal plan: ${err.message}`)
+      Logger.error('JSON parsing failed for Goal Plan text:')
+      throw new Error('Invalid goal plan from provider.')
     }
   }
 
@@ -144,8 +158,10 @@ export class AIService {
   private static async executeWithFallback(
     payload: any,
     apiKey: string,
-    preferredModel = 'gemini-3.1-flash-lite'
+    preferredModel = 'gemini-3.1-flash-lite',
+    signal?: AbortSignal
   ): Promise<string> {
+    if (bundledRelay) return requestGeminiRelay(payload, signal)
     if (!apiKey) {
       throw new Error('Gemini API Key is missing. Set it in Settings or GEMINI_API_KEY environment variable.')
     }
@@ -159,20 +175,21 @@ export class AIService {
     let lastErrorMsg = ''
 
     for (const model of candidateModels) {
+      signal?.throwIfAborted()
       try {
         Logger.info(`AIService: Querying model "${model}"...`)
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
 
         const response = await fetch(url, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
           body: JSON.stringify(payload)
         })
 
         if (!response.ok) {
-          const errText = await response.text()
           const status = response.status
-          lastErrorMsg = `Model ${model} returned status ${status}: ${errText}`
+          lastErrorMsg = `Model ${model} returned status ${status}`
 
           // Failover to next candidate model if 503, 429, 404, or 500
           if (status === 503 || status === 429 || status === 404 || status === 500) {
@@ -180,7 +197,7 @@ export class AIService {
             continue
           }
 
-          throw new Error(lastErrorMsg)
+          break
         }
 
         const resJson: any = await response.json()
@@ -208,10 +225,11 @@ export class AIService {
     goal: string,
     screenshotBase64: string,
     apiKey: string,
-    preferredModel = 'gemini-3.1-flash-lite'
+    preferredModel = 'gemini-3.1-flash-lite',
+    signal?: AbortSignal
   ): Promise<AIAnalysisResult> {
     try {
-      Logger.info(`AIService: Sending initial goal request for: "${goal}"`)
+      Logger.info('AIService: Sending initial goal request')
 
       const base64Data = screenshotBase64.includes(',')
         ? screenshotBase64.split(',')[1]
@@ -235,7 +253,7 @@ export class AIService {
         ]
       }
 
-      const textResponse = await this.executeWithFallback(payload, apiKey, preferredModel)
+      const textResponse = await this.executeWithFallback(payload, apiKey, preferredModel, signal)
       const parsedData = this.parseJsonContract(textResponse)
       
       Logger.info('AIService: Initial goal resolved successfully.')
@@ -256,10 +274,11 @@ export class AIService {
     prevScreenshotBase64: string,
     currScreenshotBase64: string,
     apiKey: string,
-    preferredModel = 'gemini-3.1-flash-lite'
+    preferredModel = 'gemini-3.1-flash-lite',
+    signal?: AbortSignal
   ): Promise<AIAnalysisResult> {
     try {
-      Logger.info(`AIService: Verifying previous step outcome: "${previousStep}"`)
+      Logger.info('AIService: Verifying previous step outcome')
 
       const prevData = prevScreenshotBase64.includes(',') ? prevScreenshotBase64.split(',')[1] : prevScreenshotBase64
       const currData = currScreenshotBase64.includes(',') ? currScreenshotBase64.split(',')[1] : currScreenshotBase64
@@ -294,7 +313,7 @@ export class AIService {
         ]
       }
 
-      const textResponse = await this.executeWithFallback(payload, apiKey, preferredModel)
+      const textResponse = await this.executeWithFallback(payload, apiKey, preferredModel, signal)
       const parsedData = this.parseJsonContract(textResponse)
 
       Logger.info('AIService: Step outcome verified successfully. Completed =', parsedData.previousStepCompleted)
@@ -312,10 +331,11 @@ export class AIService {
     goal: string,
     screenshotBase64: string,
     apiKey: string,
-    preferredModel = 'gemini-3.1-flash-lite'
+    preferredModel = 'gemini-3.1-flash-lite',
+    signal?: AbortSignal
   ): Promise<AIGoalPlanResult> {
     try {
-      Logger.info(`AIService: Requesting upfront multi-step goal plan for: "${goal}"`)
+      Logger.info('AIService: Requesting upfront multi-step goal plan')
 
       const base64Data = screenshotBase64.includes(',')
         ? screenshotBase64.split(',')[1]
@@ -339,7 +359,7 @@ export class AIService {
         ]
       }
 
-      const textResponse = await this.executeWithFallback(payload, apiKey, preferredModel)
+      const textResponse = await this.executeWithFallback(payload, apiKey, preferredModel, signal)
       const parsedPlan = this.parseGoalPlanJson(textResponse, goal)
       
       Logger.info(`AIService: Upfront plan generated successfully with ${parsedPlan.steps.length} steps.`)

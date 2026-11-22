@@ -18,7 +18,8 @@ const COLORS = [
 ];
 
 export const SettingsView: React.FC = () => {
-  const { settings, updateSetting } = useSettings();
+  const { settings, ready, error, updateSetting } = useSettings();
+  const [keyDraft, setKeyDraft] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('General');
 
   // Dynamic Accent Color
@@ -103,20 +104,20 @@ export const SettingsView: React.FC = () => {
               <div className="settings-row">
                 <div className="settings-label-group">
                   <span className="settings-label">Launch at Startup</span>
-                  <span className="settings-desc">Automatically start Glint when you sign in</span>
+                  <span className="settings-desc">Startup registration is unavailable in this build</span>
                 </div>
-                <Toggle 
-                  checked={settings?.general?.launchAtStartup ?? false} 
+                <Toggle disabled
+                  checked={false}
                   onChange={(v) => updateSetting('general', 'launchAtStartup', v)} 
                 />
               </div>
               <div className="settings-row">
                 <div className="settings-label-group">
                   <span className="settings-label">Always on Top</span>
-                  <span className="settings-desc">Keep Glint above other windows</span>
+                  <span className="settings-desc">The assistant stays above other windows</span>
                 </div>
-                <Toggle 
-                  checked={settings?.general?.alwaysOnTop ?? false} 
+                <Toggle disabled
+                  checked={true}
                   onChange={(v) => updateSetting('general', 'alwaysOnTop', v)} 
                 />
               </div>
@@ -145,10 +146,10 @@ export const SettingsView: React.FC = () => {
               <div className="settings-row">
                 <div className="settings-label-group">
                   <span className="settings-label">Theme</span>
-                  <span className="settings-desc">Choose your preferred color theme</span>
+                  <span className="settings-desc">This build uses the dark theme</span>
                 </div>
                 <Select 
-                  value={settings?.appearance?.theme ?? 'system'} 
+                  disabled value="dark"
                   onChange={(v) => updateSetting('appearance', 'theme', v)}
                   options={[
                     { value: 'system', label: 'System' },
@@ -184,13 +185,9 @@ export const SettingsView: React.FC = () => {
             <div className="settings-card">
               <div className="settings-row">
                 <div className="settings-label-group">
-                  <span className="settings-label">Enable Voice Assistant</span>
-                  <span className="settings-desc">Allow Glint to listen for voice commands</span>
+                  <span className="settings-label">Local dictation</span>
+                  <span className="settings-desc">Choose English or Tamil in the assistant, then use its microphone. Recordings are transcribed on this computer.</span>
                 </div>
-                <Toggle 
-                  checked={settings?.voice?.enabled ?? false} 
-                  onChange={(v) => updateSetting('voice', 'enabled', v)} 
-                />
               </div>
             </div>
           </div>
@@ -210,7 +207,7 @@ export const SettingsView: React.FC = () => {
                   <span className="kbd-plus">+</span>
                   <kbd>Shift</kbd>
                   <span className="kbd-plus">+</span>
-                  <kbd>G</kbd>
+                  <kbd>Space</kbd>
                 </div>
               </div>
             </div>
@@ -224,49 +221,59 @@ export const SettingsView: React.FC = () => {
               <div className="settings-row">
                 <div className="settings-label-group">
                   <span className="settings-label">Provider</span>
-                  <span className="settings-desc">Select the AI model provider</span>
+                  <span className="settings-desc">{settings.ai.hosted
+                    ? 'Screen guidance sends the goal and screen image to Google Gemini through the Glint relay'
+                    : 'Screen guidance sends the goal and screen image to Google Gemini'}</span>
                 </div>
-                <Select 
-                  value={settings?.ai?.provider ?? 'openai'} 
-                  onChange={(v) => updateSetting('ai', 'provider', v)}
-                  options={[
-                    { value: 'openai', label: 'OpenAI' },
-                    { value: 'anthropic', label: 'Anthropic' },
-                    { value: 'google', label: 'Google' },
-                    { value: 'local', label: 'Local' }
-                  ]}
-                />
+                <span>Google Gemini</span>
               </div>
-              <div className="settings-row">
-                <div className="settings-label-group">
-                  <span className="settings-label">Model</span>
-                  <span className="settings-desc">Select primary Gemini vision model (Auto-fallback enabled)</span>
+              {settings.ai.hosted ? (
+                <div className="settings-row">
+                  <div className="settings-label-group">
+                    <span className="settings-label">Connection</span>
+                    <span className="settings-desc">Online AI is configured for this Glint build</span>
+                  </div>
+                  <span>Hosted</span>
                 </div>
-                <Select 
-                  value={settings?.ai?.model ?? 'gemini-3.1-flash-lite'} 
-                  onChange={(v) => updateSetting('ai', 'model', v)}
-                  options={[
-                    { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Fastest & Stable)' },
-                    { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (High RPM)' },
-                    { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (High Intelligence)' },
-                    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Standard)' }
-                  ]}
-                />
-              </div>
-              <div className="settings-row align-top">
-                <div className="settings-label-group">
-                  <span className="settings-label">API Key</span>
-                  <span className="settings-desc">Required for AI-powered navigation guidance</span>
-                </div>
-                <div className="api-key-input-wrapper">
-                  <Input 
-                    type="password"
-                    value={settings?.ai?.apiKey ?? ''} 
-                    onChange={(v) => updateSetting('ai', 'apiKey', v)} 
-                    placeholder="Enter your API key"
-                  />
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="settings-row">
+                    <div className="settings-label-group">
+                      <span className="settings-label">Model</span>
+                      <span className="settings-desc">Select primary Gemini vision model (Auto-fallback enabled)</span>
+                    </div>
+                    <Select
+                      value={settings?.ai?.model ?? 'gemini-3.1-flash-lite'}
+                      onChange={(v) => updateSetting('ai', 'model', v)}
+                      options={[
+                        { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Fastest & Stable)' },
+                        { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (High RPM)' },
+                        { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (High Intelligence)' },
+                        { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Standard)' }
+                      ]}
+                    />
+                  </div>
+                  <div className="settings-row align-top">
+                    <div className="settings-label-group">
+                      <span className="settings-label">API Key</span>
+                      <span className="settings-desc">Required for AI-powered navigation guidance</span>
+                    </div>
+                    <div className="api-key-input-wrapper">
+                      <Input
+                        type="password"
+                        value={keyDraft}
+                        onChange={setKeyDraft}
+                        aria-label="Gemini API key"
+                        placeholder={settings.ai.hasApiKey ? 'Saved key' : 'Enter your API key'}
+                      />
+                      <button disabled={!keyDraft.trim()} onClick={async () => {
+                        if (await updateSetting('ai', 'apiKey', keyDraft)) setKeyDraft('');
+                      }}>Save key</button>
+                      {settings.ai.hasApiKey && <button onClick={() => updateSetting('ai', 'apiKey', '')}>Remove key</button>}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         );
@@ -303,7 +310,8 @@ export const SettingsView: React.FC = () => {
         <div className="settings-version">Version 1.0.0</div>
       </div>
       <div className="settings-content">
-        {renderContent()}
+        {error && <p role="alert">{error}</p>}
+        {ready ? renderContent() : !error && <p>Loading settings…</p>}
       </div>
     </div>
   );

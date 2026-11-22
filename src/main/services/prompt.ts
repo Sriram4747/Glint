@@ -14,7 +14,7 @@ CRITICAL INSTRUCTIONS:
    - Use "scroll" when the target item is further down the page.
    - Use "click" for standard left-clicks.
 5. When targeting a toggle switch, checkbox, or setting option, "targetLabel" MUST be the exact heading/name of the setting item (e.g., "Remote Desktop"), NEVER state words like "On", "Off", "Toggle", or "Switch".
-6. Keep the "nextStep" instructions friendly, concise, and direct.`
+6. Keep user-facing instructions friendly, concise, and direct. Write them in the language of the user's goal and preserve Windows control labels as displayed.`
   }
 
   static formatInitialPrompt(userGoal: string): string {

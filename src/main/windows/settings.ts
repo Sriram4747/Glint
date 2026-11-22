@@ -1,4 +1,5 @@
-import { BrowserWindow, shell } from 'electron'
+import { registerWindow } from './roles'
+import { BrowserWindow } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 
@@ -6,6 +7,7 @@ let settingsWindow: BrowserWindow | null = null
 
 export function createSettingsWindow(): void {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (settingsWindow.isMinimized()) settingsWindow.restore()
     settingsWindow.focus()
     return
   }
@@ -27,9 +29,10 @@ export function createSettingsWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   })
+  registerWindow(settingsWindow, 'settings')
 
   settingsWindow.on('ready-to-show', () => {
     settingsWindow?.show()
@@ -37,11 +40,6 @@ export function createSettingsWindow(): void {
 
   settingsWindow.on('closed', () => {
     settingsWindow = null
-  })
-
-  settingsWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

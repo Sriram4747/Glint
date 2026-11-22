@@ -1,4 +1,5 @@
-import { desktopCapturer, screen } from 'electron'
+import { roleOf } from '../windows/roles'
+import { BrowserWindow, desktopCapturer, screen } from 'electron'
 
 export interface CaptureResult {
   image: string
@@ -21,9 +22,31 @@ export interface CaptureOptions {
 }
 
 export class CaptureService {
-  static async capture(options: CaptureOptions = {}): Promise<CaptureResult> {
+  private static pending: Promise<void> = Promise.resolve()
+
+  static capture(options: CaptureOptions = {}): Promise<CaptureResult> {
+    const capture = this.pending.then(async () => {
+      const windows = BrowserWindow.getAllWindows().filter(win => roleOf(win.webContents) && win.isVisible())
+        .map(win => ({ win, opacity: win.getOpacity() }))
+      try {
+        for (const { win } of windows) win.setOpacity(0)
+        if (windows.length) await new Promise(resolve => setTimeout(resolve, 150))
+        return await this.readDisplay(options)
+      } finally {
+        for (const { win, opacity } of windows) {
+          if (!win.isDestroyed()) win.setOpacity(opacity)
+        }
+      }
+    })
+    this.pending = capture.then(() => {}, () => {})
+    return capture
+  }
+
+  private static async readDisplay(options: CaptureOptions): Promise<CaptureResult> {
     try {
-      const primaryDisplay = screen.getPrimaryDisplay()
+      const primaryDisplay = options.displayId
+        ? screen.getAllDisplays().find(display => String(display.id) === options.displayId)
+        : screen.getPrimaryDisplay()
       if (!primaryDisplay) {
         throw new Error('No primary display found')
       }
@@ -49,8 +72,9 @@ export class CaptureService {
       }
 
       // Capture the primary screen source
-      const primarySource = sources[0]
-      if (!primarySource.thumbnail || primarySource.thumbnail.isEmpty()) {
+      const primarySource = sources.find(source => source.display_id === String(primaryDisplay.id))
+        || (sources.length === 1 && !sources[0].display_id ? sources[0] : undefined)
+      if (!primarySource?.thumbnail || primarySource.thumbnail.isEmpty()) {
         throw new Error('Captured screen image is empty or invalid')
       }
 

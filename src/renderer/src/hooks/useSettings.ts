@@ -1,68 +1,39 @@
-import { useState, useCallback, useEffect } from 'react'
-import type { Settings } from '../types'
-import { DEFAULT_SETTINGS } from '../types'
+import { useState, useEffect } from 'react'
+import { DEFAULT_SETTINGS, type Settings } from '../types'
 
-interface UseSettingsReturn {
-  settings: Settings
-  updateSetting: <K extends keyof Settings>(
-    section: K,
-    key: keyof Settings[K],
-    value: Settings[K][keyof Settings[K]]
-  ) => void
-  resetSettings: () => void
-}
-
-export function useSettings(): UseSettingsReturn {
+export function useSettings() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
+  const [ready, setReady] = useState(false)
+  const [error, setError] = useState('')
 
-  // Load settings from backend via IPC on mount
   useEffect(() => {
-    async function loadSettings() {
-      if (window.glintAPI?.getSettings) {
-        const saved = await window.glintAPI.getSettings()
-        if (saved) {
-          setSettings((prev) => ({
-            ...prev,
-            ...saved,
-            // Deep merge sections to preserve default properties safely
-            general: { ...prev.general, ...(saved.general || {}) },
-            appearance: { ...prev.appearance, ...(saved.appearance || {}) },
-            voice: { ...prev.voice, ...(saved.voice || {}) },
-            hotkeys: { ...prev.hotkeys, ...(saved.hotkeys || {}) },
-            ai: { ...prev.ai, ...(saved.ai || {}) }
-          }))
-        }
-      }
-    }
-    loadSettings()
-  }, [])
-
-  const updateSetting = useCallback(
-    <K extends keyof Settings>(
-      section: K,
-      key: keyof Settings[K],
-      value: Settings[K][keyof Settings[K]]
-    ) => {
-      setSettings((prev) => {
-        const next = {
-          ...prev,
-          [section]: {
-            ...prev[section],
-            [key]: value
-          }
-        }
-        // Save back via IPC automatically
-        window.glintAPI?.saveSettings(next)
-        return next
+    let mounted = true
+    window.glintAPI.getSettings().then(saved => {
+      if (!mounted) return
+      setSettings({
+        general: { ...DEFAULT_SETTINGS.general, ...saved.general },
+        appearance: { ...DEFAULT_SETTINGS.appearance, ...saved.appearance },
+        ai: { ...DEFAULT_SETTINGS.ai, ...saved.ai }
       })
-    },
-    []
-  )
-
-  const resetSettings = useCallback(() => {
-    setSettings(DEFAULT_SETTINGS)
-    window.glintAPI?.saveSettings(DEFAULT_SETTINGS)
+      setReady(true)
+    }).catch(() => setError('Could not load settings. Check settings.json and restart Glint.'))
+    return () => { mounted = false }
   }, [])
 
-  return { settings, updateSetting, resetSettings }
+  async function updateSetting<K extends keyof Settings>(section: K, key: keyof Settings[K] | 'apiKey', value: string | boolean) {
+    try {
+      await window.glintAPI.saveSettings({ [section]: { [key]: value } })
+      setSettings(previous => ({
+        ...previous, [section]: {
+          ...previous[section], ...(key === 'apiKey' ? { hasApiKey: Boolean(String(value).trim()) } : { [key]: value })
+        }
+      }))
+      setError('')
+      return true
+    } catch {
+      setError('Could not save this change. Check Windows credential storage and profile write access.')
+      return false
+    }
+  }
+  return { settings, ready, error, updateSetting }
 }

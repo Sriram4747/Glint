@@ -2,6 +2,7 @@
   "compilerOptions": {
     "composite": true,
     "module": "ESNext",
+    "target": "ES2022",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "allowSyntheticDefaultImports": true,
@@ -18,6 +19,7 @@
     "types": ["electron-vite/node"]
   },
   "include": [
+    "src/shared/**/*",
     "src/renderer/src/**/*",
     "src/preload/*.d.ts"
   ]

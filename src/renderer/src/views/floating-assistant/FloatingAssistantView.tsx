@@ -4,13 +4,15 @@ import './FloatingAssistantView.css';
 export const FloatingAssistantView: React.FC = () => {
   const [stepText, setStepText] = useState('Step 1');
   const [goalText, setGoalText] = useState('Active Goal');
+  const [fallbackReason, setFallbackReason] = useState<string>();
   const [isAdvancing, setIsAdvancing] = useState(false);
 
   useEffect(() => {
     if (window.glintAPI?.onFloatingUpdate) {
-      window.glintAPI.onFloatingUpdate((data) => {
+      return window.glintAPI.onFloatingUpdate((data) => {
         if (data.step) setStepText(data.step);
         if (data.goal) setGoalText(data.goal);
+        setFallbackReason(data.fallbackReason);
         setIsAdvancing(false);
       });
     }
@@ -38,8 +40,7 @@ export const FloatingAssistantView: React.FC = () => {
     e.stopPropagation(); // Prevent widget click from firing
     if (isAdvancing) return;
     setIsAdvancing(true);
-    setStepText('Analyzing...');
-    window.glintAPI?.advanceStep();
+    window.glintAPI.advanceStep().catch(() => setStepText('Could not advance. Try again.')).finally(() => setIsAdvancing(false));
   };
 
   const handleClose = (e: React.MouseEvent) => {
@@ -61,6 +62,7 @@ export const FloatingAssistantView: React.FC = () => {
       <div className="glint-floating-details">
         <div className="glint-floating-title">{goalText}</div>
         <div className="glint-floating-step">{stepText}</div>
+        {fallbackReason && <div className="glint-floating-reason">{fallbackReason}</div>}
       </div>
 
       {/* Next Step Button */}
