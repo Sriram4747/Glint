@@ -2,7 +2,8 @@ import { app, BrowserWindow } from 'electron'
 import type { Session, WebContents } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname } from 'node:path'
+import { resourcePath } from '../resource-path'
 import type { TranscriptionResult, VoiceResult } from '../../shared/voice'
 import { NO_SPEECH, VOICE_MAX_SECONDS, VOICE_PERMISSION_MS, VOICE_SAMPLE_RATE, WAV_HEADER_BYTES } from '../../shared/voice'
 
@@ -17,8 +18,10 @@ interface Attempt {
 const attempts = new WeakMap<WebContents, Attempt>()
 
 function voiceFiles() {
-  const root = join(app.isPackaged ? process.resourcesPath : join(__dirname, '../../resources'), 'whisper')
-  return { executable: join(root, 'bin', 'whisper-cli.exe'), model: join(root, 'ggml-small-q5_1.bin') }
+  return {
+    executable: resourcePath('whisper', 'bin', 'whisper-cli.exe'),
+    model: resourcePath('whisper', 'ggml-small-q5_1.bin')
+  }
 }
 
 export function configureVoicePermissions(session: Session): void {
@@ -47,7 +50,9 @@ export function prepareVoice(contents: WebContents, id: unknown): VoiceResult {
 
   const { executable, model } = voiceFiles()
   if (!existsSync(executable) || !existsSync(model)) {
-    return { ok: false, error: 'Local voice setup is missing. Run npm run setup:voice in the Glint folder or type your request.' }
+    return { ok: false, error: app.isPackaged
+      ? 'Glint could not find its bundled voice files. Reopen Glint.exe or type your request.'
+      : 'Local voice setup is missing. Run npm run setup:voice in the Glint folder or type your request.' }
   }
 
   cancelVoice(contents)
@@ -127,8 +132,9 @@ export async function transcribeVoice(
   } catch {
     return {
       ok: false,
-      error: attempt.controller.signal.aborted ? 'Recording cancelled.' :
-        'Local transcription failed. Try again, rerun npm run setup:voice, or type your request.'
+      error: attempt.controller.signal.aborted ? 'Recording cancelled.' : app.isPackaged
+        ? 'Local transcription failed. Try again or type your request.'
+        : 'Local transcription failed. Try again, rerun npm run setup:voice, or type your request.'
     }
   } finally {
     if (attempts.get(contents) === attempt) cancelVoice(contents, id)

@@ -26,6 +26,7 @@ export interface Settings {
     provider: 'openai' | 'anthropic' | 'google' | 'local'
     model?: string
     hasApiKey: boolean
+    hosted?: boolean
   }
 }
 

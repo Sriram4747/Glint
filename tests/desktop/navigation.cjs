@@ -11,7 +11,7 @@ if (!process.versions.electron) {
   const env = { ...process.env }
   for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'GEMINI_API_KEY']) delete env[key]
   const test = childProcess.spawnSync(require('electron'), [__filename, profile, ...args], {
-    cwd: profile, env, timeout: 150000, stdio: 'inherit', windowsHide: true
+    cwd: profile, env, timeout: args[0]?.startsWith('--nested') ? 360000 : 150000, stdio: 'inherit', windowsHide: true
   })
   if (test.error) throw test.error
   process.exit(test.status ?? 1)
@@ -41,10 +41,11 @@ const pages = [
   ['Startup apps', 'startup applications', 'தொடக்க செயலிகள்', 'startupapps']
 ]
 
-const { app, BrowserWindow, Tray, shell, desktopCapturer } = require('electron')
+const { app, BrowserWindow, Tray, shell, desktopCapturer, screen } = require('electron')
 const [profile, mode, scenario] = process.argv.slice(2)
-const agent = ['--agent', '--agent-live', '--provider-live'].includes(mode)
-const live = ['--live', '--agent-live', '--provider-live'].includes(mode)
+const nested = ['--nested-fixture', '--nested-live'].includes(mode)
+const agent = nested || ['--agent', '--agent-live', '--provider-live'].includes(mode)
+const live = ['--live', '--agent-live', '--provider-live', '--nested-live'].includes(mode)
 app.setPath('userData', profile)
 let menu
 const setContextMenu = Tray.prototype.setContextMenu
@@ -70,6 +71,7 @@ let settingsStatus = 'verified'
 let settingsChecks = []
 let modelReply
 let scriptFixture
+let uiaChecks = []
 const knownFolders = {
   downloads: join(profile, 'Redirected Downloads'),
   documents: join(profile, 'Documents'),
@@ -99,10 +101,12 @@ childProcess.execFile = Object.assign((...args) => execFile(...args), {
       settingsChecks.push([flags.GLINT_SETTINGS_URI, flags.GLINT_SETTINGS_RETRY])
       if (!live) return { stdout: failLaunch ? 'no-window' : settingsStatus, stderr: '' }
     }
-    const substitute = scriptFixture?.(script, flags)
+    const substitute = await scriptFixture?.(script, flags)
     if (substitute !== undefined) return { stdout: substitute, stderr: '' }
     if (!live && script?.endsWith('known-media-folders.ps1')) return { stdout: '{}', stderr: '' }
-    return executeFile(file, args, options)
+    const result = await executeFile(file, args, options)
+    if (nested && flags.GLINT_UIA_REQUEST) uiaChecks.push({ request: JSON.parse(flags.GLINT_UIA_REQUEST), reply: JSON.parse(result.stdout) })
+    return result
   }
 })
 const openExternal = shell.openExternal.bind(shell)
@@ -139,8 +143,8 @@ global.fetch = async (url, options) => {
   return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ decision: reply }) }] } }] }))
 }
 
-async function until(check, description) {
-  const end = Date.now() + 10000
+async function until(check, description, timeout = 10000) {
+  const end = Date.now() + timeout
   do {
     const result = await check()
     if (result) return result
@@ -226,6 +230,19 @@ app.whenReady().then(async () => {
   const submit = (text, language) => run(assistant, `glintAPI.executeGoalStep(${JSON.stringify(language
     ? { source: 'voice', text, final: true, language }
     : { source: 'text', text })})`)
+  if (nested) {
+    await require('./nested-cases.cjs')({
+      app, mode, scenario, profile, screen, knownFolders, submit, tray,
+      assistant, run, findWindow, until, enterDraft,
+      setKey: () => { process.env.GEMINI_API_KEY = 'local-fixture-only' },
+      setPlan: handler => { modelReply = handler },
+      setScript: handler => { scriptFixture = handler },
+      checks: () => ({ requested, uiaChecks, explorerRequests, explorerChecks, revealed, captures, modelRequests }),
+      reset: () => { requested = []; uiaChecks = []; explorerRequests = []; explorerChecks = []; revealed = []; settingsChecks = []; captures = 0 }
+    })
+    app.quit()
+    return
+  }
   if (agent) {
     await require('./automation-cases.cjs')({
       mode, profile, knownFolders, submit,
@@ -319,7 +336,7 @@ app.whenReady().then(async () => {
     'Show me how to open the Display page in Windows Settings.',
     'Open Wi-Fi settings && ms-settings:windowsupdate', 'Open ms-settings:display',
     'Open Wi-Fi settings\nOpen Sound settings', 'Open https://example.invalid',
-    'Open Advanced display settings.', 'வைஃபை அமைப்புகளைத் திறக்க வேண்டாம்.',
+    'Open Advanced display settings and change the refresh rate.', 'வைஃபை அமைப்புகளைத் திறக்க வேண்டாம்.',
     'புளூடூத் அமைப்புகளைத் திறப்பது எப்படி என்று விளக்கவும்.'
   ]) {
     await test(`must not launch / ${text}`, async () => {

@@ -5,6 +5,16 @@ if ($env:GLINT_SETTINGS_RETRY -eq '1') {
     Start-Process -FilePath $env:GLINT_SETTINGS_URI
 }
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+if ($env:GLINT_SETTINGS_FOREGROUND -eq '1') {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class GlintSettingsFocus {
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+}
+'@
+}
 # Windows PowerShell 5.1 emits the JSON array as a single pipeline object.
 $names = ConvertFrom-Json -InputObject $env:GLINT_SETTINGS_HEADINGS
 $elementType = [System.Windows.Automation.AutomationElement]
@@ -14,6 +24,18 @@ $root = $elementType::RootElement
 $headingLevel = [System.Windows.Automation.AutomationProperty]::LookupById(30173)
 $deadline = [Diagnostics.Stopwatch]::StartNew()
 $status = 'no-window'
+$focusAttempted = $false
+function Confirm-Foreground($window) {
+    if ($env:GLINT_SETTINGS_FOREGROUND -ne '1') { return $true }
+    $handle = [IntPtr]::new($window.Current.NativeWindowHandle)
+    if ($handle -eq [IntPtr]::Zero) { return $false }
+    if ([GlintSettingsFocus]::GetForegroundWindow() -eq $handle) { return $true }
+    if (-not $script:focusAttempted) {
+        $script:focusAttempted = $true
+        [void][GlintSettingsFocus]::SetForegroundWindow($handle)
+    }
+    [GlintSettingsFocus]::GetForegroundWindow() -eq $handle
+}
 do {
     $settings = @(Get-Process -Name SystemSettings -ErrorAction SilentlyContinue | Where-Object {
         $_.SessionId -eq [Diagnostics.Process]::GetCurrentProcess().SessionId
@@ -49,8 +71,8 @@ do {
                             ($info.ControlType -eq [System.Windows.Automation.ControlType]::Text -and
                                 ($info.AutomationId -match '(?i)(page|breadcrumb|header).*title|pageheader|breadcrumb' -or
                                  $info.ClassName -match '(?i)breadcrumb|heading'))) {
-                            'verified'
-                            exit 0
+                            if (Confirm-Foreground $window) { 'verified'; exit 0 }
+                            $status = 'focus-blocked'
                         }
                     }
                 }

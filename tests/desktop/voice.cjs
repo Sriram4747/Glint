@@ -11,7 +11,7 @@ const { execFile, spawnSync } = require('node:child_process')
 if (!process.versions.electron) {
   const [language, file, ...flags] = process.argv.slice(2)
   assert.ok(['en', 'ta'].includes(language) && file && existsSync(file),
-    'Usage: node tests/desktop/voice.cjs en|ta <PCM WAV file> [--physical] [--navigation|--explorer [--review]]')
+    'Usage: node tests/desktop/voice.cjs en|ta <PCM WAV file> [--physical] [--navigation|--explorer] [--review]')
   const profile = mkdtempSync(join(tmpdir(), 'glint-voice-test-'))
   const env = { ...process.env }
   for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'GEMINI_API_KEY']) delete env[key]
@@ -194,10 +194,11 @@ app.whenReady().then(async () => {
     const english = language === 'en'
     const target = english ? 'Bluetooth' : 'Sound'
     const uri = english ? 'ms-settings:bluetooth' : 'ms-settings:sound'
-    // The available Tamil sample tests recording in Tamil and the editable draft.
-    if (!english) {
+    // The audio checks local recognition. A reviewed draft can request a
+    // different action from the original recording.
+    if (!english || flags.includes('--review')) {
       await run('document.querySelector("input").select()')
-      await assistant.webContents.insertText('ஒலி அமைப்புகளைத் திறக்கவும்.')
+      await assistant.webContents.insertText(english ? 'Open Bluetooth settings.' : 'ஒலி அமைப்புகளைத் திறக்கவும்.')
     }
     const submitted = await run('document.querySelector("input").value')
     await run('document.querySelector(".send-btn").click(); document.querySelector(".send-btn").click()')

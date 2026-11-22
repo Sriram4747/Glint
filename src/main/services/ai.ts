@@ -1,5 +1,6 @@
 import { Logger } from './logger'
 import { PromptService } from './prompt'
+import { bundledRelay, requestGeminiRelay } from './gemini-relay'
 
 export type ActionType = 'click' | 'right_click' | 'double_click' | 'scroll' | 'type'
 
@@ -160,6 +161,7 @@ export class AIService {
     preferredModel = 'gemini-3.1-flash-lite',
     signal?: AbortSignal
   ): Promise<string> {
+    if (bundledRelay) return requestGeminiRelay(payload, signal)
     if (!apiKey) {
       throw new Error('Gemini API Key is missing. Set it in Settings or GEMINI_API_KEY environment variable.')
     }

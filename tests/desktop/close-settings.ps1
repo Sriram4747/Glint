@@ -1,4 +1,5 @@
 # Close the Settings window opened by the integration suite to exercise a cold launch.
+param([switch]$AllowClosed)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -TypeDefinition @'
@@ -30,4 +31,4 @@ foreach ($window in $windows) {
         $closed++
     }
 }
-if (-not $closed) { throw 'The test could not close the Settings window.' }
+if (-not $closed -and -not $AllowClosed) { throw 'The test could not close the Settings window.' }

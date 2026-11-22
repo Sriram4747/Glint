@@ -5,8 +5,9 @@ import { Logger } from './logger'
 
 type Status = 'planned' | 'attempted' | 'observed' | 'verified' | 'rejected' | 'failed' | 'stopped'
 
-export function auditAutomation(run: string, tool: string, status: Status) {
-  const entry = { at: new Date().toISOString(), run, tool, status }
+export function auditAutomation(run: string, tool: string, status: Status,
+  details?: { goal?: string; target?: string; result?: string }) {
+  const entry = { at: new Date().toISOString(), run, tool, status, ...details }
   Logger.info('Windows automation', entry)
   try {
     const file = join(app.getPath('userData'), 'automation-audit.jsonl')

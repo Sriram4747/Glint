@@ -2,6 +2,7 @@ import { app, safeStorage } from 'electron'
 import * as fs from 'node:fs'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { bundledRelay } from './gemini-relay'
 
 type Section = Record<string, unknown>
 type Store = Record<string, Section>
@@ -42,15 +43,15 @@ export class SettingsStore {
   view() {
     if (this.readError) throw new Error(this.readError)
     const { apiKey, encryptedKey, ...ai } = this.data.ai || {}
-    return { ...this.data, ai: { ...ai, hasApiKey: Boolean(encryptedKey) } }
+    return { ...this.data, ai: { ...ai, hasApiKey: Boolean(encryptedKey), hosted: Boolean(bundledRelay) } }
   }
 
   guidance() {
     if (this.readError) throw new Error(this.readError)
     const ai = this.data.ai || {}
-    const key = typeof ai.encryptedKey === 'string'
+    const key = bundledRelay?.token ?? (typeof ai.encryptedKey === 'string'
       ? safeStorage.decryptString(Buffer.from(ai.encryptedKey, 'base64'))
-      : process.env.GEMINI_API_KEY
+      : process.env.GEMINI_API_KEY)
     return {
       key, visual: this.data.general?.guidanceLevel === 'standard',
       model: typeof ai.model === 'string' && validField('ai', 'model', ai.model) ? ai.model : undefined

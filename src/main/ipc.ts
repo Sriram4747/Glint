@@ -13,6 +13,7 @@ import { NativeActions } from './services/native-action'
 import { settingsAdapter } from './services/settings-adapter'
 import { explorerAdapter } from './services/explorer-adapter'
 import { WindowsAgent } from './services/windows-agent'
+import { OverlayService } from './services/overlay'
 import { cancelVoice, prepareVoice, transcribeVoice } from './services/voice'
 import { resolveGoalInput } from '../shared/input'
 import { join } from 'node:path'
@@ -64,6 +65,7 @@ export function registerIPC(): void {
   const windows = [...controls, 'settings', 'system-details']
   function clearGuidance() {
     if (GuidanceSessionService.getState() !== GuidanceSessionState.Inactive) GuidanceSessionService.cancel()
+    if (OverlayService.hasActiveHighlight()) OverlayService.clear()
     GoalService.clearSession()
   }
   function handle(channel: string, roles: string[], fn: (...args: any[]) => unknown) {

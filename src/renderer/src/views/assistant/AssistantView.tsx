@@ -383,6 +383,7 @@ export const AssistantView: React.FC = () => {
                 <div className="analysis-loading">
                   <span className="spinner-dot"></span>
                   <span>Working on your request...</span>
+                  <button type="button" className="assistant-voice-cancel" onClick={() => void handleStartNew()}>Cancel</button>
                 </div>
               )}
 

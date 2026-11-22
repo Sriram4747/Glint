@@ -1,0 +1,35 @@
+appId: com.glint.desktop
+productName: Glint
+electronDist: node_modules/electron/dist
+npmRebuild: false
+directories:
+  output: dist/portable
+files:
+  - out/**/*
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - '*.ps1'
+      - icon.png
+      - whisper/ggml-small-q5_1.bin
+      - whisper/bin/whisper-cli.exe
+      - whisper/bin/whisper.dll
+      - whisper/bin/ggml.dll
+      - whisper/bin/ggml-base.dll
+      - whisper/bin/ggml-cpu.dll
+  - from: dist/portable-resources/whisper
+    to: whisper
+  - from: dist/portable-resources
+    to: .
+    filter:
+      - gemini-relay.json
+win:
+  target:
+    - target: portable
+      arch: x64
+  icon: resources/icon.png
+  signExecutable: false
+portable:
+  artifactName: Glint.exe
+  unpackDirName: true

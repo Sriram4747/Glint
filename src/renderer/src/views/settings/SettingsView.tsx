@@ -221,45 +221,59 @@ export const SettingsView: React.FC = () => {
               <div className="settings-row">
                 <div className="settings-label-group">
                   <span className="settings-label">Provider</span>
-                  <span className="settings-desc">Screen guidance sends the goal and screen image to Google Gemini</span>
+                  <span className="settings-desc">{settings.ai.hosted
+                    ? 'Screen guidance sends the goal and screen image to Google Gemini through the Glint relay'
+                    : 'Screen guidance sends the goal and screen image to Google Gemini'}</span>
                 </div>
                 <span>Google Gemini</span>
               </div>
-              <div className="settings-row">
-                <div className="settings-label-group">
-                  <span className="settings-label">Model</span>
-                  <span className="settings-desc">Select primary Gemini vision model (Auto-fallback enabled)</span>
+              {settings.ai.hosted ? (
+                <div className="settings-row">
+                  <div className="settings-label-group">
+                    <span className="settings-label">Connection</span>
+                    <span className="settings-desc">Online AI is configured for this Glint build</span>
+                  </div>
+                  <span>Hosted</span>
                 </div>
-                <Select 
-                  value={settings?.ai?.model ?? 'gemini-3.1-flash-lite'} 
-                  onChange={(v) => updateSetting('ai', 'model', v)}
-                  options={[
-                    { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Fastest & Stable)' },
-                    { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (High RPM)' },
-                    { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (High Intelligence)' },
-                    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Standard)' }
-                  ]}
-                />
-              </div>
-              <div className="settings-row align-top">
-                <div className="settings-label-group">
-                  <span className="settings-label">API Key</span>
-                  <span className="settings-desc">Required for AI-powered navigation guidance</span>
-                </div>
-                <div className="api-key-input-wrapper">
-                  <Input 
-                    type="password"
-                    value={keyDraft}
-                    onChange={setKeyDraft}
-                    aria-label="Gemini API key"
-                    placeholder={settings.ai.hasApiKey ? 'Saved key' : 'Enter your API key'}
-                  />
-                  <button disabled={!keyDraft.trim()} onClick={async () => {
-                    if (await updateSetting('ai', 'apiKey', keyDraft)) setKeyDraft('');
-                  }}>Save key</button>
-                  {settings.ai.hasApiKey && <button onClick={() => updateSetting('ai', 'apiKey', '')}>Remove key</button>}
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="settings-row">
+                    <div className="settings-label-group">
+                      <span className="settings-label">Model</span>
+                      <span className="settings-desc">Select primary Gemini vision model (Auto-fallback enabled)</span>
+                    </div>
+                    <Select
+                      value={settings?.ai?.model ?? 'gemini-3.1-flash-lite'}
+                      onChange={(v) => updateSetting('ai', 'model', v)}
+                      options={[
+                        { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Fastest & Stable)' },
+                        { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite (High RPM)' },
+                        { value: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (High Intelligence)' },
+                        { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Standard)' }
+                      ]}
+                    />
+                  </div>
+                  <div className="settings-row align-top">
+                    <div className="settings-label-group">
+                      <span className="settings-label">API Key</span>
+                      <span className="settings-desc">Required for AI-powered navigation guidance</span>
+                    </div>
+                    <div className="api-key-input-wrapper">
+                      <Input
+                        type="password"
+                        value={keyDraft}
+                        onChange={setKeyDraft}
+                        aria-label="Gemini API key"
+                        placeholder={settings.ai.hasApiKey ? 'Saved key' : 'Enter your API key'}
+                      />
+                      <button disabled={!keyDraft.trim()} onClick={async () => {
+                        if (await updateSetting('ai', 'apiKey', keyDraft)) setKeyDraft('');
+                      }}>Save key</button>
+                      {settings.ai.hasApiKey && <button onClick={() => updateSetting('ai', 'apiKey', '')}>Remove key</button>}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         );

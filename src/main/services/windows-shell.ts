@@ -1,8 +1,9 @@
 import { app, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { realpath, stat } from 'node:fs/promises'
-import { join, win32 } from 'node:path'
+import { win32 } from 'node:path'
 import { promisify } from 'node:util'
+import { resourcePath } from '../resource-path'
 
 const runFile = promisify(execFile)
 
@@ -26,16 +27,17 @@ export async function waitForShell<T>(dispatch: Promise<T>, signal?: AbortSignal
 export async function windowsScript(script: string, variables: Record<string, string> = {}, options: {
   timeout?: number
   signal?: AbortSignal
+  maxBuffer?: number
 } = {}) {
   const windows = process.env.SystemRoot
   if (!windows) throw new WindowsActionError('The Windows system directory is unavailable.')
   const powershell = win32.join(windows, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-  const resources = app.isPackaged ? process.resourcesPath : join(__dirname, '../../resources')
+  const policy = app.isPackaged ? ['-ExecutionPolicy', 'RemoteSigned'] : []
   const { stdout } = await runFile(powershell, [
-    '-NoProfile', '-NonInteractive', '-Sta', '-File', join(resources, script)
+    '-NoProfile', '-NonInteractive', '-Sta', ...policy, '-File', resourcePath(script)
   ], {
     env: { ...process.env, ...variables }, windowsHide: true, encoding: 'utf8',
-    timeout: options.timeout ?? 8500, signal: options.signal, maxBuffer: 64 * 1024
+    timeout: options.timeout ?? 8500, signal: options.signal, maxBuffer: options.maxBuffer ?? 64 * 1024
   })
   return stdout.trim()
 }

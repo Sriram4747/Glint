@@ -1,6 +1,6 @@
 import { execFile } from 'child_process'
 import { Logger } from './logger'
-import * as path from 'path'
+import { resourcePath } from '../resource-path'
 
 export interface Rectangle {
   x: number
@@ -28,7 +28,7 @@ export interface IAccessibilityProvider {
 export class PowerShellAccessibilityProvider implements IAccessibilityProvider {
   async search(targetLabel: string, windowTitleHint?: string): Promise<AccessibilitySearchResult> {
     return new Promise((resolve) => {
-      const file = path.join(__dirname, '../../resources/find-control.ps1')
+      const file = resourcePath('find-control.ps1')
       execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], {
         windowsHide: true, timeout: 6000, encoding: 'utf8',
         env: { ...process.env, GLINT_UIA_LABEL: targetLabel, GLINT_UIA_HINT: windowTitleHint || '' }

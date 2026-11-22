@@ -45,6 +45,8 @@ export const OverlayView: React.FC = () => {
         return { text: '⌨️ Type Text', class: 'action-type' };
       case 'scroll':
         return { text: '⏬ Scroll Down', class: 'action-scroll' };
+      case 'look':
+        return { text: 'Target', class: 'action-click' };
       default:
         return { text: '🖱️ Click', class: 'action-click' };
     }

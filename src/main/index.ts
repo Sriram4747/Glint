@@ -1,10 +1,19 @@
 import { app, session } from 'electron'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { createTray } from './tray'
 import { registerIPC } from './ipc'
 import { ServiceManager, ShortcutService } from './services'
 import { createAssistantWindow } from './windows/assistant'
 import { configureVoicePermissions } from './services/voice'
 import { readBuildFingerprint, runningBuild } from './services/runtime-build'
+
+if (app.isPackaged) {
+  // Keep a running development instance from consuming a portable launch.
+  const profile = join(app.getPath('appData'), 'Glint Portable')
+  mkdirSync(profile, { recursive: true })
+  app.setPath('userData', profile)
+}
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock()
@@ -50,7 +59,7 @@ app.whenReady().then(() => {
 
   // Register activation global keyboard shortcuts
   ShortcutService.register()
-  if (process.argv.includes(showAssistantFlag)) createAssistantWindow()
+  if (app.isPackaged || process.argv.includes(showAssistantFlag)) createAssistantWindow()
 })
 
 app.on('will-quit', () => {

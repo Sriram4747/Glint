@@ -33,12 +33,13 @@ function clarify(choices: SettingsDestination[]) {
   return { kind: 'reply' as const, text: `Which Windows Settings page should I open?${options} Try “Open ${example} settings.”` }
 }
 
-export async function openSettings(destination: SettingsDestination, signal?: AbortSignal) {
+export async function openSettings(destination: SettingsDestination, signal?: AbortSignal, requireForeground = false) {
   const { uri, label } = settingsDestinations[destination]
   const variables = {
     GLINT_SETTINGS_URI: uri,
     GLINT_SETTINGS_HEADINGS: JSON.stringify(settingsHeadings(destination)),
-    GLINT_SETTINGS_HOME: destination === 'home' ? '1' : '0'
+    GLINT_SETTINGS_HOME: destination === 'home' ? '1' : '0',
+    GLINT_SETTINGS_FOREGROUND: requireForeground ? '1' : '0'
   }
   let lastStatus = 'launch-failed'
   for (const route of ['electron-shell', 'windows-shell']) {
@@ -61,7 +62,8 @@ export async function openSettings(destination: SettingsDestination, signal?: Ab
     }
   }
   const reason = lastStatus === 'unresponsive' ? 'Settings is unresponsive.' :
-    lastStatus === 'wrong-page' ? 'Settings opened, but the requested page could not be verified.' :
+      lastStatus === 'wrong-page' ? 'Settings opened, but the requested page could not be verified.' :
+      lastStatus === 'focus-blocked' ? 'Windows kept another window in the foreground.' :
       'Glint could not verify that Windows Settings opened.'
   throw new WindowsActionError(destination === 'home' ? reason : `${reason} Requested page: ${label}.`)
 }
